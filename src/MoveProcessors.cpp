@@ -273,7 +273,7 @@ namespace
         {
             case 0: s.rt60 = 2.0 + 4.0 * z;  s.scale = 1.0;  s.damping = 0.35; s.predelayMs = 22; s.modDepth = 0.3; break;            // Hall
             case 1: s.rt60 = 4.0 + 8.0 * z;  s.scale = 1.6;  s.damping = 0.25; s.predelayMs = 45; s.modDepth = 0.2; break;            // Cathedral
-            case 2: s.rt60 = 4.0 + 6.0 * z;  s.scale = 1.3;  s.damping = 0.30; s.predelayMs = 30; s.modDepth = 0.4; s.shimmer = 0.45; break; // Shimmer
+            case 2: s.rt60 = 4.0 + 6.0 * z;  s.scale = 1.3;  s.damping = 0.30; s.predelayMs = 30; s.modDepth = 0.4; s.shimmer = 0.3; break;  // Shimmer
             case 3: s.rt60 = 3.0 + 6.0 * z;  s.scale = 1.2;  s.damping = 0.50; s.predelayMs = 8;  s.modDepth = 1.0; s.diffusion = 0.75; break; // Cloud
             case 4: s.rt60 = 1.2 + 3.0 * z;  s.scale = 0.6;  s.damping = 0.12; s.predelayMs = 5;  s.modDepth = 0.15; s.diffusion = 0.72; break; // Plate
             case 5: s.rt60 = 8.0 + 12.0 * z; s.scale = 2.0;  s.damping = 0.45; s.predelayMs = 80; s.modDepth = 0.6; break;            // Deep Space
@@ -576,7 +576,7 @@ namespace
     void doDrumMoves (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)
     {
         const int n = main.getNumSamples();
-        const float level = 0.35f + 0.65f * m.knob;
+        const float level = (0.45f + 0.55f * m.knob) * c.refPeak * 0.95f;
         Buffer fb;
         const Buffer& hit = snareHit (c, fb);
 
@@ -669,7 +669,8 @@ namespace
         const double lenBeats = m.mode == 0 ? bpb * 0.5 : bpb;
         const int L = juce::jmin (n, (int) (lenBeats * c.samplesPerBeat));
         const int start = n - L;
-        const float level = 0.3f + 0.7f * m.knob;
+        const float level = 0.5f + 0.5f * m.knob;
+        std::vector<float> sub ((size_t) L, 0.0f);
         double phase = 0.0;
         const int atk = (int) (0.003 * c.sampleRate) + 1, rel = (int) (0.03 * c.sampleRate) + 1;
         for (int i = 0; i < L; ++i)
@@ -683,23 +684,33 @@ namespace
             if (i < atk) amp *= (float) i / atk;
             if (i > L - rel) amp *= (float) (L - i) / rel;
             phase += freq / c.sampleRate;
-            const float s = (float) std::tanh (1.8 * std::sin (twoPi * phase)) * 0.75f * amp * level;
-            fx.addSample (0, start + i, s);
-            fx.addSample (1, start + i, s);
+            sub[(size_t) i] = (float) std::tanh (1.8 * std::sin (twoPi * phase)) * amp;
+        }
+        // level-match: about as strong as the track's own low end (a touch above it), never
+        // louder than the whole track, scaled by the move's level
+        double ss = 0.0;
+        for (auto v : sub) ss += (double) v * v;
+        const double subRms = std::sqrt (ss / juce::jmax (1, L)) + 1.0e-9;
+        const double target = juce::jlimit ((double) c.refRms * 0.35, (double) c.refRms * 0.9, (double) c.lowRms * 1.6) * level;
+        const float g = (float) (target / subRms);
+        for (int i = 0; i < L; ++i)
+        {
+            fx.addSample (0, start + i, sub[(size_t) i] * g);
+            fx.addSample (1, start + i, sub[(size_t) i] * g);
         }
         if (transient != nullptr && m.mode != 2)
         {
             const int tl = juce::jmin (transient->getNumSamples(), (int) (0.03 * c.sampleRate));
             Buffer t (2, tl);
             for (int ch = 0; ch < 2; ++ch) t.copyFrom (ch, 0, *transient, juce::jmin (ch, transient->getNumChannels() - 1), 0, tl);
-            addHit (fx, t, start, level * 0.6f, 1.0, tl);
+            addHit (fx, t, start, level * c.refPeak * 0.6f, 1.0, tl);
         }
     }
 
     void doHats (const Move& m, const MoveContext& c, Buffer& fx)
     {
         const int n = fx.getNumSamples();
-        const float level = 0.25f + 0.6f * m.knob;
+        const float level = (0.3f + 0.5f * m.knob) * c.refPeak;
         Buffer fb;
         const Buffer& hit = hatHit (c, fb, m.mode == 2);
         const double totalBeats = n / c.samplesPerBeat;
@@ -765,7 +776,12 @@ namespace
             for (int ch = 0; ch < 2; ++ch)
                 std::reverse (wet.getWritePointer (ch), wet.getWritePointer (ch) + n);
 
-        const float mix = m.knob2 * 1.6f;
+        // match the wash to the track: at full ramp its RMS is (mix x 1.1) of the dry zone
+        double ws = 0.0;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = n / 2; i < n; ++i) ws += (double) wet.getSample (ch, i) * wet.getSample (ch, i);
+        const double wetRms = std::sqrt (ws / juce::jmax (1, n)) + 1.0e-9;
+        const float mix = (float) (m.knob2 * 1.1 * c.refRms / wetRms);
         for (int i = 0; i < n; ++i)
         {
             const float ramp = (float) curve ((double) i / n, 1.4);

@@ -13,6 +13,11 @@ struct MoveContext
     juce::int64 zoneStartInClip = 0;                  // where the zone starts in the source clip
     const juce::AudioBuffer<float>* clip = nullptr;   // the untouched music clip
     const DrumAnalysis* drums = nullptr;              // onsets relative to clip start
+
+    // levels of the original build zone, so added sounds sit at the track's level
+    float refPeak = 0.5f;     // sample peak
+    float refRms = 0.1f;      // RMS
+    float lowRms = 0.05f;     // RMS below ~120 Hz
 };
 
 /** Applies one move to the zone. 'main' is the processed music, 'fx' is the

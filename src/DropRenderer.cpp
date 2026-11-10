@@ -58,8 +58,75 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     ctx.clip = &clip;
     ctx.drums = analysis.get();
 
+    // reference levels of the untouched zone
+    {
+        double ss = 0.0, ls = 0.0;
+        float pk = 0.0f;
+        juce::IIRFilter lp1, lp2;
+        lp1.setCoefficients (juce::IIRCoefficients::makeLowPass (sr, 120.0));
+        lp2.setCoefficients (juce::IIRCoefficients::makeLowPass (sr, 120.0));
+        for (int i = 0; i < n; ++i)
+        {
+            const float l = main.getSample (0, i), r = main.getSample (1, i);
+            ss += 0.5 * ((double) l * l + (double) r * r);
+            pk = juce::jmax (pk, std::abs (l), std::abs (r));
+            const float lo = lp2.processSingleSampleRaw (lp1.processSingleSampleRaw (0.5f * (l + r)));
+            ls += (double) lo * lo;
+        }
+        ctx.refRms = (float) juce::jmax (1.0e-4, std::sqrt (ss / n));
+        ctx.refPeak = juce::jlimit (0.05f, 1.0f, pk);
+        ctx.lowRms = (float) juce::jmax (1.0e-4, std::sqrt (ls / n));
+    }
+    const juce::AudioBuffer<float> original (main);
+
     for (auto& m : model.moves)
         applyMove (m, ctx, main, fx);
+
+    // Loudness guard: a build should rise, not jump. Each beat may be at most ~3.5 dB above
+    // the original audio (or the zone's average, whichever is louder); smooth gain between beats.
+    {
+        const int beat = juce::jmax (256, (int) spb);
+        const int numBeats = (n + beat - 1) / beat;
+        auto rmsOf = [&] (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>* b, int s0, int len)
+        {
+            double acc = 0.0;
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = s0; i < s0 + len; ++i)
+                {
+                    const float v = a.getSample (ch, i) + (b != nullptr ? b->getSample (ch, i) : 0.0f);
+                    acc += (double) v * v;
+                }
+            return std::sqrt (acc / juce::jmax (1, 2 * len));
+        };
+        const double allowance = std::pow (10.0, 3.5 / 20.0);
+        std::vector<float> gains ((size_t) numBeats, 1.0f);
+        for (int b = 0; b < numBeats; ++b)
+        {
+            const int s0 = b * beat, len = juce::jmin (beat, n - s0);
+            const double allowed = juce::jmax (rmsOf (original, nullptr, s0, len), (double) ctx.refRms) * allowance;
+            const double out = rmsOf (main, &fx, s0, len);
+            gains[(size_t) b] = out > allowed ? (float) (allowed / out) : 1.0f;
+        }
+        bool any = false;
+        for (auto gval : gains) any |= gval < 0.999f;
+        if (any)
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                // interpolate between beat centres
+                const float pos = ((float) i - beat * 0.5f) / (float) beat;
+                const int b0 = juce::jlimit (0, numBeats - 1, (int) std::floor (pos));
+                const int b1 = juce::jmin (numBeats - 1, b0 + 1);
+                const float f = juce::jlimit (0.0f, 1.0f, pos - (float) b0);
+                const float gval = gains[(size_t) b0] * (1.0f - f) + gains[(size_t) b1] * f;
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    main.setSample (ch, i, main.getSample (ch, i) * gval);
+                    fx.setSample (ch, i, fx.getSample (ch, i) * gval);
+                }
+            }
+        }
+    }
 
     // write the zone back: processed music + fx layer, with a soft safety limiter
     const int dropFade = juce::jmin (n, 64);

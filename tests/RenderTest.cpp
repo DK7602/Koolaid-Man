@@ -55,6 +55,27 @@ static juce::AudioBuffer<float> makeBeat (double sr, double bpm, int bars)
     return b;
 }
 
+static double rmsDb (const juce::AudioBuffer<float>& b, int start, int len)
+{
+    double s = 0;
+    for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        for (int i = start; i < start + len; ++i) s += (double) b.getSample (ch, i) * b.getSample (ch, i);
+    return 10.0 * std::log10 (s / juce::jmax (1, len * b.getNumChannels()) + 1.0e-12);
+}
+
+/** Largest per-beat level jump (dB) of the rendered zone over the original audio. */
+static double maxBeatJump (const RenderResult& r, const juce::AudioBuffer<float>& orig)
+{
+    const int beat = (int) r.samplesPerBeat;
+    double worst = -100.0;
+    for (auto s = r.zoneStart; s + beat <= r.zoneEnd; s += beat)
+    {
+        const double ref = juce::jmax (rmsDb (orig, (int) s, beat), rmsDb (orig, (int) r.zoneStart, (int) (r.zoneEnd - r.zoneStart)));
+        worst = juce::jmax (worst, rmsDb (r.mix, (int) s, beat) - ref);
+    }
+    return worst;
+}
+
 static bool checkBuffer (const juce::AudioBuffer<float>& b, const juce::String& what)
 {
     float peak = 0;
@@ -149,8 +170,10 @@ int main (int argc, char** argv)
             double outside = 0;
             for (int i = 0; i < (int) r->zoneStart; ++i)
                 outside += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
+            const double jump = maxBeatJump (*r, clip->audio);
             std::cout << "  " << name.paddedRight (' ', 44) << juce::String (ms, 1).paddedLeft (' ', 7) << " ms   zone diff "
-                      << juce::String (diff / (r->zoneEnd - r->zoneStart), 4) << "\n";
+                      << juce::String (diff / (r->zoneEnd - r->zoneStart), 4) << "   max beat jump " << juce::String (jump, 1) << " dB\n";
+            if (jump > 6.0) { std::cout << "FAIL: " << name << " is " << juce::String (jump, 1) << " dB louder than the track\n"; ++failures; }
             if (diff < 1.0e-3) { std::cout << "FAIL: " << name << " did nothing\n"; ++failures; }
             if (outside > 1.0e-6) { std::cout << "FAIL: " << name << " touched audio before the zone\n"; ++failures; }
             writeWav (outDir, "move - " + name, r->mix, sr);
@@ -179,6 +202,11 @@ int main (int argc, char** argv)
         for (auto& mv : m.moves) desc << mv.stackLabel() << " | ";
         auto r = renderDrop (m, analysis, 1);
         if (! checkBuffer (r->mix, "roll " + desc)) ++failures;
+        if (maxBeatJump (*r, clip->audio) > 6.0)
+        {
+            std::cout << "FAIL: roll " << desc << " jumps " << juce::String (maxBeatJump (*r, clip->audio), 1) << " dB\n";
+            ++failures;
+        }
         if (i < 5)
         {
             std::cout << "roll " << i << ": " << desc << "\n";
