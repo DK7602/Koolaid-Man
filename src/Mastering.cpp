@@ -92,8 +92,10 @@ float truePeakLimit (juce::AudioBuffer<float>& b, int start, int n, double sr, f
     // boxcar over the lookahead window: smooth attack that still lands under every peak
     float minGain = 1.0f;
     double acc = 0.0;
-    std::vector<float> win ((size_t) look, 1.0f);
-    for (int i = 0; i < look; ++i) acc += 1.0;
+    // start the window at the first sample's gain: a peak right at the start of the
+    // section (e.g. an Impact on the downbeat) can't be anticipated from outside it
+    std::vector<float> win ((size_t) look, g[0]);
+    acc = (double) g[0] * look;
     for (int i = 0; i < n; ++i)
     {
         acc += g[(size_t) i] - win[(size_t) (i % look)];

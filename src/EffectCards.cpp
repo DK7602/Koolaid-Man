@@ -97,6 +97,275 @@ namespace
         bool on = false;
     };
 
+
+    //==========================================================================
+    // Page 2 ("BUILD & DROP") cards, built from the artwork's own card
+    //==========================================================================
+    constexpr float sourceHue = 0.74f;   // the Atmos card the wide cards are made from
+
+    juce::Colour shiftHue (juce::Colour c, float targetHue)
+    {
+        if (c.getSaturation() < 0.10f) return c;
+        float d = c.getHue() - sourceHue;
+        if (d > 0.5f) d -= 1.0f;
+        if (d < -0.5f) d += 1.0f;
+        if (std::abs (d) > 0.16f) return c;            // keep the green power button, white, etc.
+        return c.withHue (std::fmod (targetHue + d + 1.0f, 1.0f));
+    }
+
+    /** Builds a wide card (w x h + 4 px glow margin) from the Atmos card art. */
+    juce::Image buildWideCard (int w, int h, float hue, juce::Point<int> knobAt)
+    {
+        const auto& art = Skin::get().image();
+        const juce::Rectangle<int> src (1233, 748, 189, 117);   // Atmos card + 4 px margin
+        auto s = art.getClippedImage (src).createCopy().convertedToFormat (juce::Image::ARGB);
+        const int sw = s.getWidth(), sh = s.getHeight();
+        {
+            // clear the card's contents, keeping its border, gradient and power button
+            juce::Image::BitmapData bd (s, juce::Image::BitmapData::readWrite);
+            const juce::Rectangle<int> power (1390 - 1233 - 3, 758 - 748 - 3, 31, 28);
+            // each row's typical background colour (median brightness), then smoothed
+            // vertically, so clearing the title / icon / knobs leaves no streaks or bands
+            std::vector<juce::Colour> rowCol ((size_t) sh);
+            for (int y = 9; y < sh - 9; ++y)
+            {
+                std::vector<juce::Colour> row;
+                for (int x = 13; x < sw - 13; ++x)
+                    if (! power.contains (x, y)) row.push_back (bd.getPixelColour (x, y));
+                std::sort (row.begin(), row.end(), [] (juce::Colour a, juce::Colour b) { return a.getPerceivedBrightness() < b.getPerceivedBrightness(); });
+                rowCol[(size_t) y] = row.empty() ? bd.getPixelColour (12, y) : row[row.size() / 2];
+            }
+            std::vector<juce::Colour> smooth ((size_t) sh);
+            for (int y = 9; y < sh - 9; ++y)
+            {
+                float r = 0, g = 0, b = 0; int cnt = 0;
+                for (int k = juce::jmax (9, y - 7); k <= juce::jmin (sh - 10, y + 7); ++k)
+                {
+                    r += rowCol[(size_t) k].getFloatRed(); g += rowCol[(size_t) k].getFloatGreen(); b += rowCol[(size_t) k].getFloatBlue(); ++cnt;
+                }
+                smooth[(size_t) y] = juce::Colour::fromFloatRGBA (r / cnt, g / cnt, b / cnt, 1.0f);
+            }
+            for (int y = 9; y < sh - 9; ++y)
+                for (int x = 13; x < sw - 13; ++x)
+                    if (! power.contains (x, y))
+                    {
+                        // blend into the border over a few pixels so the bevel stays intact
+                        const int edge = juce::jmin (x - 13, sw - 14 - x, y - 9, sh - 10 - y);
+                        const float a = juce::jlimit (0.0f, 1.0f, (edge + 1) / 4.0f);
+                        bd.setPixelColour (x, y, bd.getPixelColour (x, y).interpolatedWith (smooth[(size_t) y], a));
+                    }
+        }
+        const int W = w + 8, H = h + 8;
+        juce::Image out (juce::Image::ARGB, W, H, true);
+        {
+            juce::Graphics g (out);
+            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+            const int left = 28, right = 40;   // 9-slice: keep the corners and the power button
+            g.drawImage (s, 0, 0, left, H, 0, 0, left, sh);
+            g.drawImage (s, left, 0, W - left - right, H, left, 0, sw - left - right, sh);
+            g.drawImage (s, W - right, 0, right, H, sw - right, 0, right, sh);
+            // the knob ring (with its tick marks) from the Atmos SIZE knob
+            auto ring = art.getClippedImage ({ 1273, 781, 54, 54 });
+            juce::Path circle;
+            circle.addEllipse ((float) (knobAt.x - 27), (float) (knobAt.y - 27), 54.0f, 54.0f);
+            g.saveState();
+            g.reduceClipRegion (circle);
+            g.drawImageAt (ring, knobAt.x - 27, knobAt.y - 27);
+            g.restoreState();
+        }
+        juce::Image::BitmapData bd (out, juce::Image::BitmapData::readWrite);
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                bd.setPixelColour (x, y, shiftHue (bd.getPixelColour (x, y), hue));
+        return out;
+    }
+
+    void drawIcon (juce::Graphics& g, MoveType t, juce::Rectangle<float> r)
+    {
+        juce::Path p;
+        const float x = r.getX(), y = r.getY(), w = r.getWidth(), h = r.getHeight();
+        switch (t)
+        {
+            case MoveType::Riser:     // rising zig-zag with an arrow
+                p.startNewSubPath (x, y + h * 0.95f);
+                p.lineTo (x + w * 0.3f, y + h * 0.6f); p.lineTo (x + w * 0.45f, y + h * 0.75f); p.lineTo (x + w * 0.8f, y + h * 0.25f);
+                p = p.createPathWithRoundedCorners (2.0f);
+                { juce::Path s; juce::PathStrokeType (4.0f).createStrokedPath (s, p); p = s; }
+                p.addTriangle (x + w * 0.62f, y + h * 0.18f, x + w, y, x + w * 0.9f, y + h * 0.42f);
+                break;
+            case MoveType::RevCrash:  // cymbal with a back arrow
+                p.addEllipse (x + w * 0.05f, y + h * 0.3f, w * 0.9f, h * 0.32f);
+                p.addRectangle (x + w * 0.46f, y + h * 0.55f, w * 0.08f, h * 0.45f);
+                p.addTriangle (x + w * 0.1f, y + h * 0.1f, x + w * 0.35f, y, x + w * 0.35f, y + h * 0.22f);
+                p.addRectangle (x + w * 0.33f, y + h * 0.07f, w * 0.45f, h * 0.08f);
+                break;
+            case MoveType::Pump:      // ducking envelope
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float x0 = x + k * w / 3.0f;
+                    p.addTriangle (x0, y + h, x0, y + h * 0.15f, x0 + w / 3.0f, y + h);
+                }
+                break;
+            case MoveType::Gap:       // pause bars
+                p.addRoundedRectangle (x + w * 0.15f, y, w * 0.25f, h, 2.0f);
+                p.addRoundedRectangle (x + w * 0.6f, y, w * 0.25f, h, 2.0f);
+                break;
+            case MoveType::Impact:    // starburst
+                p.addStar ({ x + w * 0.5f, y + h * 0.5f }, 8, h * 0.22f, h * 0.55f, 0.2f);
+                break;
+            case MoveType::Boom:      // speaker
+                p.addEllipse (x + w * 0.1f, y, h, h);
+                p.addEllipse (x + w * 0.1f + h * 0.3f, y + h * 0.3f, h * 0.4f, h * 0.4f);
+                p.setUsingNonZeroWinding (false);
+                p.addRectangle (x + w * 0.1f + h + 2.0f, y + h * 0.42f, w - h - w * 0.1f - 2.0f, h * 0.16f);
+                break;
+            default: break;
+        }
+        g.setColour (juce::Colour (0xaa1a0b2a));
+        g.strokePath (p, juce::PathStrokeType (2.5f), juce::AffineTransform::translation (1.0f, 1.5f));
+        g.setColour (juce::Colour (0xfffdf6ff));
+        g.fillPath (p);
+    }
+
+    void drawValueBox (juce::Graphics& g, juce::Rectangle<float> r, const juce::String& text, bool hover)
+    {
+        g.setColour (juce::Colour (0x66000000));
+        g.fillRoundedRectangle (r.translated (0.0f, 1.0f), 5.0f);
+        juce::ColourGradient bg (juce::Colour (0xff22202a), 0, r.getY(), juce::Colour (0xff0b0a10), 0, r.getBottom(), false);
+        g.setGradientFill (bg);
+        g.fillRoundedRectangle (r, 5.0f);
+        g.setColour (juce::Colour (0xff6f6a82));
+        g.drawRoundedRectangle (r.reduced (0.5f), 5.0f, 1.0f);
+        if (hover) { g.setColour (juce::Colours::white.withAlpha (0.08f)); g.fillRoundedRectangle (r, 5.0f); }
+        auto tr = r.reduced (8.0f, 0.0f).withTrimmedRight (14.0f);
+        g.setFont (Skin::get().wideBold (15.5f));
+        g.setColour (juce::Colour (0x8c000000));
+        g.drawFittedText (text, tr.translated (1.0f, 1.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+        g.setColour (juce::Colour (0xfff7f3ff));
+        g.drawFittedText (text, tr.toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+        juce::Path tri;
+        const float ax = r.getRight() - 12.0f, ay = r.getCentreY();
+        tri.addTriangle (ax - 5.0f, ay - 2.5f, ax + 5.0f, ay - 2.5f, ax, ay + 3.5f);
+        g.fillPath (tri);
+    }
+
+    /** The baked wide card plus its title, icon and labels. */
+    class WideCard : public juce::Component
+    {
+    public:
+        WideCard (juce::Rectangle<int> card, MoveType t, float h, juce::String knobLabel, juce::String valueLabel)
+            : type (t), hue (h), knobText (std::move (knobLabel)), valueText (std::move (valueLabel))
+        {
+            setBounds (card.expanded (4));
+            setInterceptsMouseClicks (false, false);
+        }
+        juce::Colour faceTint()
+        {
+            ensure();
+            return image.getPixelAt (4 + 62 - 7, 4 + 66 - 8);
+        }
+        void paint (juce::Graphics& g) override
+        {
+            ensure();
+            g.drawImageAt (image, 0, 0);
+            const auto& sk = Skin::get();
+            drawIcon (g, type, { 16.0f, 12.0f, 30.0f, 22.0f });
+            drawShadowText (g, km::cardTitle (type), { 54.0f, 9.0f, (float) getWidth() - 100.0f, 28.0f }, sk.bold (21.0f),
+                            juce::Justification::centredLeft, juce::Colour (0xfffdf6ff), juce::Colour (0x8c000000));
+            drawShadowText (g, knobText, { 4.0f + 62.0f - 40.0f, 4.0f + 90.0f, 80.0f, 18.0f }, sk.bold (17.0f),
+                            juce::Justification::centred, juce::Colour (0xfffdf6ff), juce::Colour (0x8c000000));
+            drawShadowText (g, "TYPE", { 4.0f + 104.0f, 4.0f + 40.0f, 66.0f, 24.0f }, sk.bold (17.0f),
+                            juce::Justification::centredRight, juce::Colour (0xfffdf6ff), juce::Colour (0x8c000000));
+            drawShadowText (g, valueText, { 4.0f + 104.0f, 4.0f + 72.0f, 66.0f, 24.0f }, sk.bold (17.0f),
+                            juce::Justification::centredRight, juce::Colour (0xfffdf6ff), juce::Colour (0x8c000000));
+        }
+    private:
+        void ensure()
+        {
+            if (version != Skin::get().version() || ! image.isValid())
+            {
+                image = buildWideCard (getWidth() - 8, getHeight() - 8, hue, { 4 + 62, 4 + 66 });
+                version = Skin::get().version();
+            }
+        }
+        MoveType type;
+        float hue;
+        juce::String knobText, valueText;
+        juce::Image image;
+        int version = -1;
+    };
+
+    /** A dropdown value box drawn in the style of the art's boxes. */
+    class ArtBox : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        explicit ArtBox (juce::Rectangle<int> b) { setBounds (b); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        void setText (const juce::String& t) { if (t != text) { text = t; repaint(); } }
+        std::function<void()> onClick;
+        std::function<void (float)> onWheel;
+        void paint (juce::Graphics& g) override { drawValueBox (g, getLocalBounds().toFloat().reduced (1.0f), text, isMouseOver()); }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override  { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
+        void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override { if (onWheel) onWheel (w.deltaY); }
+        juce::String text;
+    };
+
+    /** Covers page 1's cards with the panel's own background when page 2 is showing. */
+    class PagePanel : public juce::Component
+    {
+    public:
+        PagePanel() { setBounds (area); setInterceptsMouseClicks (false, false); }
+        void paint (juce::Graphics& g) override
+        {
+            if (version != Skin::get().version())
+            {
+                patch = Skin::get().makePatch (area);
+                version = Skin::get().version();
+            }
+            g.drawImageAt (patch, 0, 0);
+        }
+        const juce::Rectangle<int> area { 462, 620, 962, 250 };
+        juce::Image patch;
+        int version = -1;
+    };
+
+    /** MAIN MOVES / BUILD & DROP tabs in the panel's title bar. */
+    class PageTab : public juce::Component
+    {
+    public:
+        PageTab (juce::Rectangle<int> b, juce::String t) : text (std::move (t)) { setBounds (b); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        std::function<void()> onClick;
+        void setActive (bool a) { if (a != active) { active = a; repaint(); } }
+        void paint (juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat().reduced (1.0f);
+            if (active)
+            {
+                juce::ColourGradient grad (col::hotPink, r.getX(), 0, juce::Colour (0xffb13cff), r.getRight(), 0, false);
+                g.setGradientFill (grad);
+                g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+                g.setColour (juce::Colours::white.withAlpha (0.6f));
+                g.drawRoundedRectangle (r.reduced (0.5f), r.getHeight() * 0.5f, 1.0f);
+            }
+            else
+            {
+                g.setColour (isMouseOver() ? col::lavender.withAlpha (0.35f) : col::lavender.withAlpha (0.18f));
+                g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+                g.setColour (col::lavender.withAlpha (0.7f));
+                g.drawRoundedRectangle (r.reduced (0.5f), r.getHeight() * 0.5f, 1.0f);
+            }
+            drawShadowText (g, text, r, Skin::get().heavyItalic (17.0f), juce::Justification::centred,
+                            active ? juce::Colours::white : col::text,
+                            active ? juce::Colour (0x8c000000) : col::shadow);
+        }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override  { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
+        juce::String text;
+        bool active = false;
+    };
+
     enum class ValueKind { none, division, semitones };
 
     juce::String divisionText (int d) { return km::divisions()[(size_t) juce::jlimit (0, 8, d)].label; }
@@ -115,6 +384,22 @@ struct EffectCards::Card
     ValueKind kind = ValueKind::none;
     std::unique_ptr<Meter> meter;
     std::vector<std::unique_ptr<ModeButton>> modes;
+    // page 2
+    int page = 0;
+    std::unique_ptr<WideCard> wide;
+    std::unique_ptr<ArtBox> artMode, artValue;
+
+    std::vector<juce::Component*> components() const
+    {
+        std::vector<juce::Component*> v;
+        for (juce::Component* c : { (juce::Component*) wide.get(), (juce::Component*) title.get(), (juce::Component*) knob.get(),
+                                    (juce::Component*) knob2.get(), (juce::Component*) value.get(), (juce::Component*) meter.get(),
+                                    (juce::Component*) artMode.get(), (juce::Component*) artValue.get(),
+                                    (juce::Component*) shade.get(), (juce::Component*) power.get() })
+            if (c != nullptr) v.push_back (c);
+        for (auto& m : modes) v.push_back (m.get());
+        return v;
+    }
 };
 
 EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component& parent) : proc (p), stack (s)
@@ -261,6 +546,129 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
 
         cards.push_back (std::move (c));
     }
+
+    //---------------------------------------------------------------------- page 2
+    auto panel = std::make_unique<PagePanel>();
+    parent.addChildComponent (*panel);
+    page2Panel = std::move (panel);
+
+    struct WideDef { MoveType type; juce::Rectangle<int> card; float hue; const char* knob; const char* value; const char* tip; };
+    const WideDef wides[] = {
+        { MoveType::Riser,    { 466, 630, 306, 109 }, 0.43f, "LEVEL", "LENGTH", "White-noise riser / uplifter sweeping up into the drop" },
+        { MoveType::RevCrash, { 790, 630, 306, 109 }, 0.12f, "LEVEL", "LENGTH", "A crash cymbal played backwards, swelling into the downbeat" },
+        { MoveType::Pump,     { 1114, 630, 306, 109 }, 0.90f, "DEPTH", "RATE",  "Sidechain pump: ducks the build in time with the beat" },
+        { MoveType::Gap,      { 466, 752, 306, 109 }, 0.63f, "DEPTH", "LENGTH", "The breath before the drop: silence or a filter right before it hits" },
+        { MoveType::Impact,   { 790, 752, 306, 109 }, 0.03f, "LEVEL", "TAIL",  "Hit + crash on the drop's downbeat (plays after the drop)" },
+        { MoveType::Boom,     { 1114, 752, 306, 109 }, 0.79f, "LEVEL", "LENGTH", "Sub boom on the drop's downbeat (plays after the drop)" },
+    };
+    for (auto& d : wides)
+    {
+        auto c = std::make_unique<Card>();
+        auto* card = c.get();
+        c->type = d.type;
+        c->bounds = d.card;
+        c->kind = ValueKind::division;
+        c->page = 1;
+        const auto x = d.card.getX(), y = d.card.getY(), w = d.card.getWidth();
+
+        c->wide = std::make_unique<WideCard> (d.card, d.type, d.hue, d.knob, d.value);
+        parent.addChildComponent (*c->wide);
+
+        c->title = std::make_unique<SkinButton> (juce::Rectangle<int> (x + 6, y + 4, w - 44, 30), 6.0f);
+        c->title->onClick = [this, card] { showTitleMenu (*card); };
+        c->title->setTooltip (juce::String (d.tip) + " - click for variations");
+        parent.addChildComponent (*c->title);
+
+        c->knob = std::make_unique<SkinKnob> (juce::Point<float> ((float) x + 62.0f, (float) y + 66.0f));
+        c->knob->setTint (c->wide->faceTint());
+        c->knob->setDefault (km::defaultMove (d.type).knob);
+        c->knob->onBubble = [this] (SkinKnob& kn, const juce::String& t, bool show) { if (onBubble) onBubble (kn, t, show); };
+        c->knob->valueText = [this, card] (float) { return km::knobName (card->type, 0).toUpperCase() + " " + km::knobValueText (target (card->type), 0); };
+        c->knob->onChange = [this, card] (float v)
+        {
+            target (card->type).knob = v;
+            if (onEdited) onEdited();
+            if (onStackChanged) onStackChanged();
+        };
+        c->knob->setTooltip (juce::String (d.tip) + " (drag, double-click to reset)");
+        parent.addChildComponent (*c->knob);
+
+        c->artMode = std::make_unique<ArtBox> (juce::Rectangle<int> (x + 176, y + 43, 122, 24));
+        c->artMode->onClick = [this, card] { showTitleMenu (*card); };
+        c->artMode->onWheel = [this, card] (float dy)
+        {
+            auto& m = target (card->type);
+            m.mode = juce::jlimit (0, km::modeNames (card->type).size() - 1, m.mode + (dy > 0 ? -1 : 1));
+            if (onEdited) onEdited();
+            if (onStackChanged) onStackChanged();
+            refresh();
+        };
+        c->artMode->setTooltip ("Variation");
+        parent.addChildComponent (*c->artMode);
+
+        c->artValue = std::make_unique<ArtBox> (juce::Rectangle<int> (x + 176, y + 75, 122, 24));
+        c->artValue->onClick = [this, card] { showValueMenu (*card, card->artValue.get()); };
+        c->artValue->onWheel = [this, card] (float dy)
+        {
+            auto& m = target (card->type);
+            m.division = juce::jlimit (0, 8, m.division + (dy > 0 ? 1 : -1));
+            if (onEdited) onEdited();
+            if (onStackChanged) onStackChanged();
+            refresh();
+        };
+        c->artValue->setTooltip (juce::String (d.value).toLowerCase().replaceFirstOccurrenceOf ("l", "L"));
+        parent.addChildComponent (*c->artValue);
+
+        c->shade = std::make_unique<CardShade> (d.card);
+        parent.addChildComponent (*c->shade);
+
+        c->power = std::make_unique<SkinButton> (juce::Rectangle<int> (x + w - 28, y + 6, 25, 22), 5.0f);
+        c->power->setArtSource ({ 1390, 758, 25, 22 });
+        c->power->onClick = [this, card] { togglePower (card->type); };
+        c->power->setTooltip ("Turn " + juce::String (km::typeName (d.type)) + " on/off (adds it to the stack if it isn't there)");
+        parent.addChildComponent (*c->power);
+
+        cards.push_back (std::move (c));
+    }
+
+    auto tab1 = std::make_unique<PageTab> (juce::Rectangle<int> (1172, 589, 120, 23), "MAIN MOVES");
+    auto tab2 = std::make_unique<PageTab> (juce::Rectangle<int> (1298, 589, 124, 23), "BUILD & DROP");
+    tab1->onClick = [this] { setPage (0); };
+    tab2->onClick = [this] { setPage (1); };
+    parent.addAndMakeVisible (*tab1);
+    parent.addAndMakeVisible (*tab2);
+    tabs.push_back (std::move (tab1));
+    tabs.push_back (std::move (tab2));
+
+    setPage (0);
+    refresh();
+}
+
+void EffectCards::setPage (int p)
+{
+    page = juce::jlimit (0, 1, p);
+    page2Panel->setVisible (page == 1);
+    if (page == 1) page2Panel->toFront (false);
+    for (auto& c : cards)
+        for (auto* comp : c->components())
+        {
+            comp->setVisible (c->page == page);
+            if (c->page == 1 && page == 1) comp->toFront (false);
+        }
+    for (size_t i = 0; i < tabs.size(); ++i)
+        static_cast<PageTab*> (tabs[i].get())->setActive ((int) i == page);
+    if (onPageChanged) onPageChanged();
+}
+
+void EffectCards::followSelection()
+{
+    const int sel = stack.selectedIndex();
+    const auto& moves = proc.getModel().moves;
+    if (sel >= 0 && sel < (int) moves.size())
+    {
+        const int want = (int) moves[(size_t) sel].type >= (int) MoveType::Riser ? 1 : 0;
+        if (want != page) setPage (want);
+    }
     refresh();
 }
 
@@ -378,7 +786,7 @@ void EffectCards::showTitleMenu (Card& card)
     });
 }
 
-void EffectCards::showValueMenu (Card& card)
+void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
 {
     selectType (card.type);
     auto& m = target (card.type);
@@ -396,7 +804,7 @@ void EffectCards::showValueMenu (Card& card)
             menu.addItem (1000 + semitoneChoices[i] + 100, semiText (semitoneChoices[i]) + " st", true, m.semitones == semitoneChoices[i]);
     }
     const auto t = card.type;
-    menu.showMenuAsync (menuOptionsFor (card.value.get()), [this, t] (int r)
+    menu.showMenuAsync (menuOptionsFor (anchor != nullptr ? anchor : card.value.get()), [this, t] (int r)
     {
         if (r == 0) return;
         auto& mv = target (t);
@@ -438,6 +846,15 @@ void EffectCards::refresh()
         }
         if (c->value)
             c->value->setText (c->kind == ValueKind::semitones ? semiText (m.semitones) : divisionText (m.division));
+        if (c->artValue)
+            c->artValue->setText (juce::String (km::divisions()[(size_t) juce::jlimit (0, 8, m.division)].longLabel).toUpperCase());
+        if (c->artMode)
+        {
+            const auto names = km::modeNames (c->type);
+            c->artMode->setText (names[juce::jlimit (0, names.size() - 1, m.mode)].toUpperCase());
+        }
+        if (c->page == 1 && c->knob && ! c->knob->isDragging())
+            c->knob->setValue (m.knob);
         for (size_t i = 0; i < c->modes.size(); ++i)
             c->modes[i]->setOn ((int) i == m.mode);
 

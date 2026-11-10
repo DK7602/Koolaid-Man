@@ -43,7 +43,10 @@ WaveformView::Peaks WaveformView::makePeaks (const juce::AudioBuffer<float>& b, 
 
 double WaveformView::clipBeats() const
 {
-    return proc.getModel().clipLengthBeats();
+    double beats = proc.getModel().clipLengthBeats();
+    if (auto r = proc.getResult(); r != nullptr && r->source == proc.getModel().music && r->samplesPerBeat > 0)
+        beats = juce::jmax (beats, r->mix.getNumSamples() / r->samplesPerBeat);   // after-drop tail
+    return beats;
 }
 
 void WaveformView::refresh()

@@ -80,14 +80,15 @@ static double maxBeatJump (const RenderResult& r, const juce::AudioBuffer<float>
 static bool checkBuffer (const juce::AudioBuffer<float>& b, const juce::String& what)
 {
     float peak = 0;
+    int where = 0;
     for (int ch = 0; ch < b.getNumChannels(); ++ch)
         for (int i = 0; i < b.getNumSamples(); ++i)
         {
             const float v = b.getSample (ch, i);
             if (! std::isfinite (v)) { std::cout << "FAIL non-finite sample in " << what << "\n"; return false; }
-            peak = juce::jmax (peak, std::abs (v));
+            if (std::abs (v) > peak) { peak = std::abs (v); where = i; }
         }
-    if (peak > 1.0001f) { std::cout << "FAIL peak " << peak << " in " << what << "\n"; return false; }
+    if (peak > 1.0001f) { std::cout << "FAIL peak " << peak << " at sample " << where << " of " << b.getNumSamples() << " in " << what << "\n"; return false; }
     return true;
 }
 
@@ -162,18 +163,25 @@ int main (int argc, char** argv)
             const auto ms = juce::Time::getMillisecondCounterHiRes() - s;
             const juce::String name = mv.stackLabel() + " [" + modes[mode] + "]";
             if (! checkBuffer (r->mix, name)) ++failures;
-            if (r->mix.getNumSamples() != clip->audio.getNumSamples()) { std::cout << "FAIL length " << name << "\n"; ++failures; }
-            // the zone must actually change
+            const bool after = playsAfterDrop (mv.type);
+            const double barSamples = 4.0 * m.samplesPerBeat (sr);
+            const double bars = r->mix.getNumSamples() / barSamples;
+            const bool lengthOk = after ? (r->mix.getNumSamples() >= clip->audio.getNumSamples() && std::abs (bars - std::round (bars)) < 1.0e-3)
+                                        : r->mix.getNumSamples() == clip->audio.getNumSamples();
+            if (! lengthOk) { std::cout << "FAIL length " << name << " (" << bars << " bars)\n"; ++failures; }
+            // the zone (or, for Impact / Sub Boom, the audio after the drop) must actually change
             double diff = 0;
-            for (int i = (int) r->zoneStart; i < (int) r->zoneEnd; ++i)
-                diff += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
+            const int d0 = after ? (int) r->zoneEnd + 64 : (int) r->zoneStart;
+            const int d1 = after ? r->mix.getNumSamples() : (int) r->zoneEnd;
+            for (int i = d0; i < d1; ++i)
+                diff += std::abs (r->mix.getSample (0, i) - (i < clip->audio.getNumSamples() ? clip->audio.getSample (0, i) : 0.0f));
             // and audio outside the zone must be untouched (apart from the drop micro-fade)
             double outside = 0;
             for (int i = 0; i < (int) r->zoneStart; ++i)
                 outside += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
             const double jump = maxBeatJump (*r, clip->audio);
             std::cout << "  " << name.paddedRight (' ', 44) << juce::String (ms, 1).paddedLeft (' ', 7) << " ms   zone diff "
-                      << juce::String (diff / (r->zoneEnd - r->zoneStart), 4) << "   max beat jump " << juce::String (jump, 1) << " dB\n";
+                      << juce::String (diff / juce::jmax (1, d1 - d0), 4) << "   max beat jump " << juce::String (jump, 1) << " dB\n";
             if (jump > 6.0) { std::cout << "FAIL: " << name << " is " << juce::String (jump, 1) << " dB louder than the track\n"; ++failures; }
             const float tp = juce::Decibels::gainToDecibels (measureTruePeak (r->mix, (int) r->zoneStart, (int) (r->zoneEnd - r->zoneStart), sr));
             if (tp > r->ceilingDb + 0.3f) { std::cout << "FAIL: " << name << " true peak " << tp << " dBTP over ceiling " << r->ceilingDb << "\n"; ++failures; }

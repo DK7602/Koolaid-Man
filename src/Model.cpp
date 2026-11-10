@@ -47,6 +47,12 @@ const char* typeName (MoveType t)
         case MoveType::Bass808:   return "808";
         case MoveType::Hats:      return "Hats";
         case MoveType::Atmos:     return "Atmos";
+        case MoveType::Riser:     return "Riser";
+        case MoveType::RevCrash:  return "Reverse Crash";
+        case MoveType::Pump:      return "Pump";
+        case MoveType::Gap:       return "Drop Gap";
+        case MoveType::Impact:    return "Impact";
+        case MoveType::Boom:      return "Sub Boom";
         default: break;
     }
     return "";
@@ -66,6 +72,12 @@ const char* cardTitle (MoveType t)
         case MoveType::Bass808:   return "808 DETECT";
         case MoveType::Hats:      return "HAT DETECT";
         case MoveType::Atmos:     return "ATMOS REVERB";
+        case MoveType::Riser:     return "NOISE RISER";
+        case MoveType::RevCrash:  return "REVERSE CRASH";
+        case MoveType::Pump:      return "SIDECHAIN PUMP";
+        case MoveType::Gap:       return "DROP GAP";
+        case MoveType::Impact:    return "IMPACT";
+        case MoveType::Boom:      return "SUB BOOM";
         default: break;
     }
     return "";
@@ -85,6 +97,12 @@ juce::StringArray modeNames (MoveType t)
         case MoveType::Bass808:   return { "Slide Down", "Slide Up", "Sub Swell" };
         case MoveType::Hats:      return { "Roll", "Triplet Roll", "Open Hats" };
         case MoveType::Atmos:     return atmosTypeNames();
+        case MoveType::Riser:     return { "Noise Sweep", "Uplifter", "Snare Wash" };
+        case MoveType::RevCrash:  return { "Crash", "Splash", "Dark Wash" };
+        case MoveType::Pump:      return { "Smooth", "Hard", "Rising" };
+        case MoveType::Gap:       return { "Silence", "Low-pass", "High-pass" };
+        case MoveType::Impact:    return { "Hit + Crash", "Hit Only", "Crash + Downlifter" };
+        case MoveType::Boom:      return { "Deep", "Punchy", "Long Dive" };
         default: break;
     }
     return {};
@@ -104,6 +122,12 @@ juce::String knobName (MoveType t, int which)
         case MoveType::Bass808:   return "Sens";
         case MoveType::Hats:      return "Sens";
         case MoveType::Atmos:     return which == 0 ? "Size" : "Mix";
+        case MoveType::Riser:
+        case MoveType::RevCrash:
+        case MoveType::Impact:
+        case MoveType::Boom:      return "Level";
+        case MoveType::Pump:
+        case MoveType::Gap:       return "Depth";
         default: break;
     }
     return {};
@@ -162,6 +186,12 @@ juce::String Move::stackLabel() const
         case MoveType::Bass808:   return "808 (" + modeName + ")";
         case MoveType::Hats:      return "Hats (" + modeName + ")";
         case MoveType::Atmos:     return "Atmos (" + modeName + ")";
+        case MoveType::Riser:     return "Riser (" + div + ", " + modeName + ")";
+        case MoveType::RevCrash:  return "Reverse Crash (" + div + ")";
+        case MoveType::Pump:      return "Pump (" + div + ", " + modeName + ")";
+        case MoveType::Gap:       return "Drop Gap (" + div + ", " + modeName + ")";
+        case MoveType::Impact:    return "Impact (" + modeName + ")";
+        case MoveType::Boom:      return "Sub Boom (" + modeName + ")";
         default: break;
     }
     return {};
@@ -183,6 +213,12 @@ Move defaultMove (MoveType t)
         case MoveType::Bass808:   m.knob = 0.8f; break;
         case MoveType::Hats:      m.knob = 0.7f; break;
         case MoveType::Atmos:     m.knob = 0.6f; m.knob2 = 0.45f; m.mode = 1; break;
+        case MoveType::Riser:     m.division = 7; m.knob = 0.6f; break;     // 2 bars
+        case MoveType::RevCrash:  m.division = 6; m.knob = 0.6f; break;     // 1 bar
+        case MoveType::Pump:      m.division = 4; m.knob = 0.6f; break;     // 1/4
+        case MoveType::Gap:       m.division = 4; m.knob = 1.0f; break;     // 1/4 (one beat)
+        case MoveType::Impact:    m.division = 7; m.knob = 0.7f; break;     // 2-bar tail
+        case MoveType::Boom:      m.division = 6; m.knob = 0.7f; break;     // 1 bar
         default: break;
     }
     return m;
@@ -194,17 +230,23 @@ int canonicalOrder (MoveType t)
     {
         case MoveType::DrumMoves: return 0;
         case MoveType::Hats:      return 1;
-        case MoveType::Chops:     return 2;
-        case MoveType::Stutter:   return 3;
-        case MoveType::Pitch:     return 4;
-        case MoveType::Filter:    return 5;
-        case MoveType::Atmos:     return 6;
-        case MoveType::Bass808:   return 7;
-        case MoveType::Reverse:   return 8;
-        case MoveType::TapeStop:  return 9;
+        case MoveType::Pump:      return 2;
+        case MoveType::Chops:     return 3;
+        case MoveType::Stutter:   return 4;
+        case MoveType::Pitch:     return 5;
+        case MoveType::Filter:    return 6;
+        case MoveType::Riser:     return 7;
+        case MoveType::RevCrash:  return 8;
+        case MoveType::Atmos:     return 9;
+        case MoveType::Bass808:   return 10;
+        case MoveType::Reverse:   return 11;
+        case MoveType::TapeStop:  return 12;
+        case MoveType::Gap:       return 13;
+        case MoveType::Impact:    return 14;
+        case MoveType::Boom:      return 15;
         default: break;
     }
-    return 10;
+    return 16;
 }
 
 juce::ValueTree Move::toTree() const

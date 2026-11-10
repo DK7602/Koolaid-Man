@@ -277,16 +277,21 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
 
     //------------------------------------------------------------------ stack
     stack.onStackEdited = [this] { edited(); };
-    stack.onSelectionChanged = [this] { if (cards) cards->refresh(); };
+    stack.onSelectionChanged = [this] { if (cards) cards->followSelection(); };
     addMoveBtn.setTooltip ("Add a move to the stack");
     addMoveBtn.onClick = [this]
     {
         juce::PopupMenu menu;
         menu.addSectionHeader ("ADD MOVE");
         const char* desc[] = { "Reverse", "Chops", "Stutter", "Pitch", "Tape Stop", "Filter", "Drum Moves (snare fill / gate / roll)",
-                               "808 Slide", "Hat Roll", "Atmos Reverb" };
+                               "808 Slide", "Hat Roll", "Atmos Reverb",
+                               "Noise Riser", "Reverse Crash", "Sidechain Pump", "Drop Gap", "Impact (on the drop)", "Sub Boom (on the drop)" };
+        static_assert (sizeof (desc) / sizeof (desc[0]) == km::numMoveTypes, "one name per move type");
         for (int t = 0; t < km::numMoveTypes; ++t)
+        {
+            if (t == (int) MoveType::Riser) menu.addSectionHeader ("BUILD & DROP");
             menu.addItem (t + 1, desc[t]);
+        }
         menu.showMenuAsync (menuOptionsFor (&addMoveBtn), [this] (int r)
         {
             if (r <= 0) return;

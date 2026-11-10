@@ -24,6 +24,12 @@ struct MoveContext
     generated layer (drum fills, 808s, hats, reverb). Both are the zone's length. */
 void applyMove (const Move&, const MoveContext&, juce::AudioBuffer<float>& main, juce::AudioBuffer<float>& fx);
 
+/** Impact / Sub Boom: renders the move into 'post', a buffer that starts on the drop's downbeat. */
+void renderAfterDrop (const Move&, const MoveContext&, juce::AudioBuffer<float>& post);
+
+/** How far past the drop an after-drop move rings (in beats). */
+double afterDropTailBeats (const Move&, double beatsPerBar);
+
 double stutterSpanBeats (float knob, double beatsPerBar);
 double filterCutoff (float knob);
 

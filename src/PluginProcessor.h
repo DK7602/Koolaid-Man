@@ -134,6 +134,7 @@ private:
     std::atomic<const km::RenderResult*> audioResult { nullptr };
     std::vector<std::pair<km::ResultPtr, juce::uint32>> retired;
     std::atomic<bool> renderPending { false };
+    int lastRequestId = 0;
 
     // transport (shared with the audio thread)
     std::atomic<bool> playing { false }, syncActive { false };

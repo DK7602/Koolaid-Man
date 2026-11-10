@@ -122,6 +122,36 @@ Finds the hi-hats in your audio and **rolls** them into the drop. **SENS** = det
 
 Seven big atmospheric reverbs that swell up across the build: **Hall, Cathedral, Shimmer, Cloud, Plate, Deep Space** and **Reverse Swell**. **Size** = how big and long, **Mix** = how loud the wash gets. Click the card title to choose the reverb.
 
+# Build & Drop Moves (Page 2)
+
+Click **BUILD & DROP** in the title bar of the cards panel to flip to the second page of cards (**MAIN MOVES** flips back). Selecting a move in the stack also flips to its page. These are the classic tools producers reach for in almost every build. Each card has a **TYPE** box for its variation and a length or rate box; click either for a list, or scroll over them.
+
+## Noise Riser
+
+White noise that sweeps up into the drop. **Level** sets how loud it gets, **Length** sets how long it rises. Types: **Noise Sweep**, **Uplifter** (noise plus a rising synth tone) and **Snare Wash** (1/16 noise bursts that blur into a wall of noise).
+
+## Reverse Crash
+
+A crash cymbal played backwards, so it swells right into the downbeat. Types: **Crash**, **Splash** (short and bright) and **Dark Wash**.
+
+## Sidechain Pump
+
+Ducks the build in time with the beat, like a kick-triggered sidechain compressor. **Depth** sets how hard it ducks, **Rate** sets how often. Types: **Smooth**, **Hard** and **Rising** (starts gentle and gets deeper toward the drop).
+
+## Drop Gap
+
+The breath right before the drop hits. **Length** sets how long (one beat is the classic), **Depth** sets how much. Types: **Silence**, **Low-pass** and **High-pass**. Risers and other added sounds keep playing through the gap.
+
+## Impact
+
+A hit plus a crash on the **downbeat of the drop**. **Tail** sets how long it rings. Types: **Hit + Crash**, **Hit Only** and **Crash + Downlifter** (a noise sweep falling away from the drop).
+
+## Sub Boom
+
+A deep sub drop on the downbeat. Types: **Deep**, **Punchy** and **Long Dive**.
+
+**Impact** and **Sub Boom** play *after* the drop. If your audio ends right at the drop, Koolaid Man adds a tail (rounded up to whole bars) so you still hear them, and the export includes it.
+
 # Detection
 
 Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and finds the **snare**, the **808/kick** and the **hi-hats**. Their exact hits are used by Drum Moves, 808 Detect and Hat Detect.

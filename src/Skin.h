@@ -126,6 +126,8 @@ public:
     bool isLit() const { return lit; }
     void setLitRegion (juce::Rectangle<int> designRegion) { litRegion = designRegion; repaint(); }
     void setShowHover (bool b) { showHover = b; }
+    /** Draw this button from another spot of the artwork (lit = art, off = greyed art). */
+    void setArtSource (juce::Rectangle<int> designRegion) { artSource = designRegion; repaint(); }
     void setGlow (juce::Colour c) { glow = c; repaint(); }   // transparent = none
     void setFlash (bool b) { flash = b; repaint(); }
 
@@ -140,6 +142,7 @@ protected:
     float radius;
     bool lit = true, flash = false, dragging = false, showHover = true;
     juce::Rectangle<int> litRegion;   // empty = whole button
+    juce::Rectangle<int> artSource;   // empty = the art under the button
     juce::Colour glow = juce::Colours::transparentBlack;
 };
 
@@ -195,6 +198,7 @@ public:
     float getValue() const { return value; }
     void setDefault (float d) { defaultValue = d; }
     void setDimmed (bool d) { if (d != dimmed) { dimmed = d; repaint(); } }
+    void setTint (juce::Colour c) { tint = c; repaint(); }
 
     std::function<void (float)> onChange;
     std::function<juce::String (float)> valueText;   // for the bubble while dragging

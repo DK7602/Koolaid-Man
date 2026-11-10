@@ -18,19 +18,34 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     const auto& clip = model.music->audio;
     const double sr = model.music->sampleRate;
     const double spb = model.samplesPerBeat (sr);
-    const int total = clip.getNumSamples();
+    const int clipLen = clip.getNumSamples();
 
     res->source = model.music;
     res->sampleRate = sr;
     res->samplesPerBeat = spb;
-    res->zoneStart = juce::jlimit<juce::int64> (0, total, (juce::int64) std::llround (model.zoneStart * spb));
-    res->zoneEnd = juce::jlimit<juce::int64> (res->zoneStart, total, (juce::int64) std::llround (model.zoneEnd * spb));
+    res->zoneStart = juce::jlimit<juce::int64> (0, clipLen, (juce::int64) std::llround (model.zoneStart * spb));
+    res->zoneEnd = juce::jlimit<juce::int64> (res->zoneStart, clipLen, (juce::int64) std::llround (model.zoneEnd * spb));
+
+    // Impact / Sub Boom ring past the drop. If the audio ends there, add a tail
+    // (rounded up to whole bars so exports still land on the grid).
+    int tail = 0;
+    for (auto& m : model.moves)
+        if (m.enabled && playsAfterDrop (m.type))
+            tail = juce::jmax (tail, (int) std::llround (afterDropTailBeats (m, model.beatsPerBar()) * spb));
+    int total = clipLen;
+    if (res->zoneEnd + tail > clipLen)
+    {
+        const double barSamples = model.beatsPerBar() * spb;
+        total = (int) std::llround (std::ceil ((res->zoneEnd + tail) / barSamples - 1.0e-6) * barSamples);
+    }
+    res->postLength = tail;
 
     res->mix.setSize (2, total);
     res->fx.setSize (2, total);
+    res->mix.clear();
     res->fx.clear();
     for (int ch = 0; ch < 2; ++ch)
-        res->mix.copyFrom (ch, 0, clip, juce::jmin (ch, clip.getNumChannels() - 1), 0, total);
+        res->mix.copyFrom (ch, 0, clip, juce::jmin (ch, clip.getNumChannels() - 1), 0, clipLen);
 
     const int n = (int) (res->zoneEnd - res->zoneStart);
     if (n < 64)
@@ -154,6 +169,27 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
                 post[i] *= (float) i / 24.0f;
         }
     }
+
+    // after-drop moves (Impact, Sub Boom) land on the downbeat
+    if (tail > 0)
+    {
+        const int postLen = juce::jmin (tail, total - (int) res->zoneEnd);
+        juce::AudioBuffer<float> post (2, postLen);
+        post.clear();
+        for (auto& m : model.moves)
+            renderAfterDrop (m, ctx, post);
+        // what was already there after the drop (if anything) sets the ceiling, else -1 dBTP
+        const int origPost = juce::jmax (0, juce::jmin (postLen, clipLen - (int) res->zoneEnd));
+        const float origTp = origPost > 0 ? measureTruePeak (res->mix, (int) res->zoneEnd, origPost, sr) : 0.0f;
+        const float ceiling = juce::jlimit (juce::Decibels::decibelsToGain (-1.0f), juce::Decibels::decibelsToGain (-0.1f), origTp);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            res->mix.addFrom (ch, (int) res->zoneEnd, post, ch, 0, postLen);
+            res->fx.addFrom (ch, (int) res->zoneEnd, post, ch, 0, postLen);
+        }
+        truePeakLimit (res->mix, (int) res->zoneEnd, postLen, sr, ceiling);
+        truePeakLimit (res->fx, (int) res->zoneEnd, postLen, sr, ceiling);
+    }
     return res;
 }
 
@@ -170,11 +206,12 @@ RenderThread::~RenderThread()
     stopThread (4000);
 }
 
-void RenderThread::request (const DropModel& model)
+void RenderThread::request (const DropModel& model, int requestId)
 {
     {
         const juce::ScopedLock sl (lock);
         pending = std::make_unique<DropModel> (model);
+        pendingId = requestId;
     }
     wake.signal();
 }
@@ -191,9 +228,11 @@ void RenderThread::run()
     {
         wake.wait (500);
         std::unique_ptr<DropModel> job;
+        int jobId = 0;
         {
             const juce::ScopedLock sl (lock);
             job = std::move (pending);
+            jobId = pendingId;
         }
         if (job == nullptr || threadShouldExit())
             continue;
@@ -238,7 +277,9 @@ void RenderThread::run()
                 continue;
         }
 
-        auto result = renderDrop (*job, analysis, ++version);
+        auto rendered = renderDrop (*job, analysis, ++version);
+        std::const_pointer_cast<RenderResult> (rendered)->requestId = jobId;
+        auto result = std::move (rendered);
         if (onResult && ! threadShouldExit())
             onResult (result);
     }

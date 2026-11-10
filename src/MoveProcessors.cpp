@@ -851,6 +851,318 @@ namespace
                 d[i] *= 1.0f - duck * (float) curve ((double) i / n, 1.4);
         }
     }
+
+
+    //==========================================================================
+    // Classic build & drop tools
+    //==========================================================================
+    float rmsOf (const Buffer& b, int s0, int len)
+    {
+        s0 = juce::jlimit (0, b.getNumSamples(), s0);
+        len = juce::jlimit (0, b.getNumSamples() - s0, len);
+        if (len <= 0) return 0.0f;
+        double acc = 0.0;
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            for (int i = s0; i < s0 + len; ++i) acc += (double) b.getSample (ch, i) * b.getSample (ch, i);
+        return (float) std::sqrt (acc / (len * b.getNumChannels()));
+    }
+
+    /** Scales 'layer' so the RMS of [s0, s0+len) hits 'target', then adds it into 'dest' at 'offset'. */
+    void addMatched (Buffer& dest, Buffer& layer, int offset, int s0, int len, float target)
+    {
+        const float r = rmsOf (layer, s0, len);
+        if (r < 1.0e-9f) return;
+        layer.applyGain (target / r);
+        for (int ch = 0; ch < dest.getNumChannels(); ++ch)
+        {
+            const int n = juce::jmin (layer.getNumSamples(), dest.getNumSamples() - offset);
+            if (n > 0) dest.addFrom (ch, offset, layer, juce::jmin (ch, layer.getNumChannels() - 1), 0, n);
+        }
+    }
+
+    /** PolyBLEP sawtooth (alias-suppressed). */
+    struct BlepSaw
+    {
+        double phase = 0.0;
+        static double blep (double t, double dt)
+        {
+            if (t < dt) { t /= dt; return t + t - t * t - 1.0; }
+            if (t > 1.0 - dt) { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
+            return 0.0;
+        }
+        float next (double freq, double sr)
+        {
+            const double dt = juce::jlimit (1.0e-6, 0.45, freq / sr);
+            const double v = 2.0 * phase - 1.0 - blep (phase, dt);
+            phase += dt;
+            if (phase >= 1.0) phase -= 1.0;
+            return (float) v;
+        }
+    };
+
+    /** A synthetic crash cymbal: bright noise through a bank of metallic resonances. */
+    Buffer synthCrash (double sr, int len, double decaySeconds, double brightness, juce::uint32 seed)
+    {
+        Buffer out (2, juce::jmax (1, len));
+        const double partials[] = { 3150.0, 4730.0, 5940.0, 7320.0, 8610.0, 10230.0 };
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::Random rng ((juce::int64) seed * 31 + ch * 977 + 5);
+            juce::IIRFilter hp1, hp2, lp;
+            hp1.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 2800.0));
+            hp2.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 2800.0));
+            lp.setCoefficients (juce::IIRCoefficients::makeLowPass (sr, juce::jlimit (4000.0, sr * 0.45, 7000.0 + 9000.0 * brightness)));
+            Svf res[6];
+            for (int k = 0; k < 6; ++k) res[k].set (sr, partials[k] * (ch == 0 ? 1.0 : 1.013), 0.08);
+            auto* d = out.getWritePointer (ch);
+            for (int i = 0; i < len; ++i)
+            {
+                const double t = i / sr;
+                const float nz = rng.nextFloat() * 2.0f - 1.0f;
+                float metal = 0.0f;
+                for (auto& r : res) { float l, b, h; r.process (nz, l, b, h); metal += b; }
+                float v = hp2.processSingleSampleRaw (hp1.processSingleSampleRaw (nz * 0.6f + metal * 0.12f));
+                v = lp.processSingleSampleRaw (v);
+                const float env = (float) (std::exp (-t / decaySeconds) * (1.0 - std::exp (-t / 0.002)));
+                d[i] = v * env;
+            }
+        }
+        return out;
+    }
+
+    void doRiser (const Move& m, const MoveContext& c, Buffer& fx)
+    {
+        const int n = fx.getNumSamples();
+        const int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        if (L < 256) return;
+        const double sr = c.sampleRate;
+        Buffer layer (2, L);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::Random rng ((juce::int64) m.seed * 13 + ch * 101 + 1);
+            Svf bp;
+            BlepSaw saws[3];
+            juce::IIRFilter hp;
+            hp.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 150.0));
+            Svf toneLp;
+            auto* d = layer.getWritePointer (ch);
+            const double sixteenth = 0.25 * c.samplesPerBeat;
+            for (int i = 0; i < L; ++i)
+            {
+                const double t = (double) i / L;
+                const float nz = rng.nextFloat() * 2.0f - 1.0f;
+                float v = 0.0f;
+                if ((i & 15) == 0)
+                    bp.set (sr, 250.0 * std::pow (44.0, std::pow (t, 1.3)), m.mode == 2 ? 0.9 : 1.2);
+                float l, b, h;
+                bp.process (nz, l, b, h);
+                if (m.mode == 0)
+                {
+                    v = b * 2.2f;
+                }
+                else if (m.mode == 1)   // uplifter: noise + three detuned saws gliding up two octaves
+                {
+                    const double f = 180.0 * std::pow (10.0, std::pow (t, 1.4));
+                    float tone = 0.0f;
+                    const double det[3] = { 1.0, 1.0072, 0.9931 };
+                    for (int k = 0; k < 3; ++k) tone += saws[k].next (f * det[k] * (ch == 0 ? 1.0 : 1.002), sr);
+                    if ((i & 15) == 0) toneLp.set (sr, juce::jmin (sr * 0.45, f * 4.0), 1.0);
+                    float tl, tb, th;
+                    toneLp.process (tone * 0.33f, tl, tb, th);
+                    v = b * 1.4f + tl;
+                }
+                else                    // snare wash: 1/16 noise bursts that blur into a wall of noise
+                {
+                    const double ph = std::fmod ((c.zoneStartInClip + (n - L) + i) / sixteenth, 1.0);
+                    const double tau = 0.08 + 0.9 * std::pow (t, 2.0);
+                    v = b * 2.0f * (float) std::exp (-ph / tau);
+                }
+                v = hp.processSingleSampleRaw (v);
+                const float env = (float) std::pow (t, 1.6);
+                const int tail = juce::jmin (L / 8, (int) (0.003 * sr) + 1);
+                d[i] = v * env * (i > L - tail ? (float) (L - i) / tail : 1.0f);
+            }
+        }
+        addMatched (fx, layer, n - L, L - L / 4, L / 4, c.refRms * (0.35f + 0.75f * m.knob));
+    }
+
+    void doRevCrash (const Move& m, const MoveContext& c, Buffer& fx)
+    {
+        const int n = fx.getNumSamples();
+        int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        if (m.mode == 1) L = juce::jmin (L, toSamples (2.0, c));
+        if (L < 256) return;
+        const double decay = (L / c.sampleRate) * (m.mode == 2 ? 0.55 : 0.35);
+        Buffer crash = synthCrash (c.sampleRate, L, decay, m.mode == 1 ? 1.0 : (m.mode == 2 ? 0.0 : 0.6), m.seed);
+        for (int ch = 0; ch < 2; ++ch)
+            std::reverse (crash.getWritePointer (ch), crash.getWritePointer (ch) + L);   // swells into the drop
+        const int tail = (int) (0.002 * c.sampleRate);
+        crash.applyGainRamp (L - tail, tail, 1.0f, 0.0f);
+        addMatched (fx, crash, n - L, L - L / 6, L / 6, c.refRms * (0.4f + 0.8f * m.knob));
+    }
+
+    void doPump (const Move& m, const MoveContext& c, Buffer& main)
+    {
+        const int n = main.getNumSamples();
+        const double stepBeats = juce::jmax (0.125, divisionToBeats (m.division, c.beatsPerBar));
+        const float depth = 0.92f * m.knob;
+        const float smooth = 1.0f - std::exp (-1.0f / (float) (0.0015 * c.sampleRate));
+        float g = 1.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            // phase on the song's beat grid, so the pump locks to the kick
+            const double beatPos = (c.zoneStartInClip + i) / c.samplesPerBeat;
+            const double ph = std::fmod (beatPos / stepBeats, 1.0);
+            double duck;
+            if (m.mode == 1) duck = ph < 0.3 ? 1.0 : std::exp (-(ph - 0.3) * 16.0);
+            else             duck = std::exp (-ph * 5.0);
+            float d = depth;
+            if (m.mode == 2) d *= (float) std::pow ((double) i / n, 1.2);
+            const float target = 1.0f - d * (float) duck;
+            g += (target - g) * smooth;
+            for (int ch = 0; ch < main.getNumChannels(); ++ch)
+                main.getWritePointer (ch)[i] *= g;
+        }
+    }
+
+    void doGap (const Move& m, const MoveContext& c, Buffer& main)
+    {
+        const int n = main.getNumSamples();
+        const int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        if (L < 64) return;
+        const int start = n - L;
+        const int fade = juce::jmin (L / 3, (int) (0.006 * c.sampleRate) + 1);
+        Buffer wet (main.getNumChannels(), L);
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+        {
+            if (m.mode == 0) { wet.clear (ch, 0, L); continue; }
+            Svf f;
+            f.set (c.sampleRate, m.mode == 1 ? 260.0 : 2200.0, 1.2);
+            auto* src = main.getReadPointer (ch, start);
+            auto* d = wet.getWritePointer (ch);
+            for (int i = 0; i < L; ++i)
+            {
+                float l, b, h;
+                f.process (src[i], l, b, h);
+                d[i] = m.mode == 1 ? l : h;
+            }
+        }
+        for (int ch = 0; ch < main.getNumChannels(); ++ch)
+        {
+            auto* d = main.getWritePointer (ch, start);
+            auto* w = wet.getReadPointer (ch);
+            for (int i = 0; i < L; ++i)
+            {
+                const float amt = m.knob * (i < fade ? (float) i / fade : 1.0f);
+                d[i] = d[i] * (1.0f - amt) + w[i] * amt;
+            }
+        }
+    }
+}
+
+//==============================================================================
+double afterDropTailBeats (const Move& m, double bpb)
+{
+    const double beats = divisionToBeats (m.division, bpb);
+    return m.type == MoveType::Impact ? juce::jmax (bpb, beats) : juce::jmax (bpb * 0.5, beats);
+}
+
+void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
+{
+    if (! m.enabled || ! playsAfterDrop (m.type)) return;
+    const double sr = c.sampleRate;
+    const int T = juce::jmin (post.getNumSamples(), (int) std::llround (afterDropTailBeats (m, c.beatsPerBar) * c.samplesPerBeat));
+    if (T < 256) return;
+    const float level = 0.45f + 0.65f * m.knob;
+    const int firstHalfSec = juce::jmin (T, (int) (0.5 * sr));
+
+    if (m.type == MoveType::Boom)
+    {
+        Buffer boom (2, T);
+        double phase = 0.0;
+        for (int i = 0; i < T; ++i)
+        {
+            const double t = i / sr;
+            double f, env;
+            if (m.mode == 1)      { f = 40.0 + 45.0 * std::exp (-t / 0.05); env = std::exp (-t / 0.35); }   // punchy
+            else if (m.mode == 2) { f = 26.0 + 46.0 * std::pow (1.0 - (double) i / T, 1.6); env = std::exp (-t / (T / sr * 0.6)); } // long dive
+            else                  { f = 30.0 + 26.0 * std::exp (-t / 0.35); env = std::exp (-t / 0.9); }   // deep
+            phase += f / sr;
+            const float atk = (float) juce::jmin (1.0, t / 0.002);
+            const float v = (float) std::tanh (1.5 * std::sin (juce::MathConstants<double>::twoPi * phase)) * (float) env * atk;
+            boom.setSample (0, i, v);
+            boom.setSample (1, i, v);
+        }
+        const int rel = juce::jmin (T / 4, (int) (0.05 * sr));
+        boom.applyGainRamp (T - rel, rel, 1.0f, 0.0f);
+        addMatched (post, boom, 0, 0, firstHalfSec, juce::jlimit (c.refRms * 0.5f, c.refRms * 1.2f, c.lowRms * 2.0f) * level);
+        return;
+    }
+
+    // Impact
+    Buffer hit (2, T);
+    hit.clear();
+    if (m.mode != 2)
+    {
+        // transient crack + thump + body
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::Random rng ((juce::int64) m.seed * 7 + ch * 3 + 11);
+            juce::IIRFilter hp, bp;
+            hp.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 900.0));
+            bp.setCoefficients (juce::IIRCoefficients::makeBandPass (sr, 180.0, 1.0));
+            double phase = 0.0;
+            for (int i = 0; i < juce::jmin (T, (int) (1.2 * sr)); ++i)
+            {
+                const double t = i / sr;
+                const float nz = rng.nextFloat() * 2.0f - 1.0f;
+                phase += (48.0 + 40.0 * std::exp (-t / 0.04)) / sr;
+                const float v = hp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.09) * 0.8f
+                              + bp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.18) * 1.5f
+                              + (float) std::sin (juce::MathConstants<double>::twoPi * phase) * (float) std::exp (-t / 0.28);
+                hit.setSample (ch, i, v * (float) juce::jmin (1.0, t / 0.0008));
+            }
+        }
+    }
+    if (m.mode != 1)
+    {
+        auto crash = synthCrash (sr, T, juce::jmin (2.8, T / sr * 0.45), 0.7, m.seed + 99);
+        hit.addFrom (0, 0, crash, 0, 0, T, 0.9f);
+        hit.addFrom (1, 0, crash, 1, 0, T, 0.9f);
+    }
+    if (m.mode == 2)
+    {
+        // downlifter: a noise sweep falling away from the drop
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::Random rng ((juce::int64) m.seed * 5 + ch + 21);
+            Svf f;
+            for (int i = 0; i < T; ++i)
+            {
+                const double t = (double) i / T;
+                if ((i & 15) == 0) f.set (sr, 9000.0 * std::pow (300.0 / 9000.0, std::pow (t, 0.7)), 1.1);
+                float l, b, h;
+                f.process (rng.nextFloat() * 2.0f - 1.0f, l, b, h);
+                hit.addSample (ch, i, b * 1.6f * (float) std::pow (1.0 - t, 1.5));
+            }
+        }
+    }
+    // a short room on the hit
+    {
+        FdnReverb rv;
+        auto st = atmosSettings (0, 0.45f);
+        rv.prepare (sr, st);
+        for (int i = 0; i < T; ++i)
+        {
+            float l, r;
+            rv.process (hit.getSample (0, i), hit.getSample (1, i), l, r);
+            hit.addSample (0, i, l * 0.5f);
+            hit.addSample (1, i, r * 0.5f);
+        }
+    }
+    const int rel = juce::jmin (T / 4, (int) (0.08 * sr));
+    hit.applyGainRamp (T - rel, rel, 1.0f, 0.0f);
+    addMatched (post, hit, 0, 0, firstHalfSec, c.refRms * 1.4f * level);
 }
 
 void applyMove (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)
@@ -873,6 +1185,12 @@ void applyMove (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)
         case MoveType::Bass808:   do808 (m, c, fx); break;
         case MoveType::Hats:      doHats (m, c, fx); break;
         case MoveType::Atmos:     doAtmos (m, c, main, fx); break;
+        case MoveType::Riser:     doRiser (m, c, fx); break;
+        case MoveType::RevCrash:  doRevCrash (m, c, fx); break;
+        case MoveType::Pump:      doPump (m, c, main); break;
+        case MoveType::Gap:       doGap (m, c, main); break;
+        case MoveType::Impact:
+        case MoveType::Boom:      break;   // rendered after the drop (renderAfterDrop)
         default: break;
     }
 }

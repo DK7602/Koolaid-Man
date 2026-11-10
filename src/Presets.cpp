@@ -159,7 +159,7 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums)
     const auto pick = [&] (std::initializer_list<int> options) { return *(options.begin() + rng.nextInt ((int) options.size())); };
 
     // body: 2-3 moves that shape the build
-    std::vector<T> body { T::Chops, T::Filter, T::Pitch, T::Atmos, T::DrumMoves, T::Hats, T::Stutter };
+    std::vector<T> body { T::Chops, T::Filter, T::Pitch, T::Atmos, T::DrumMoves, T::Hats, T::Stutter, T::Riser, T::Pump, T::RevCrash };
     if (! haveDrums) body.push_back (T::Filter);
     for (int i = (int) body.size() - 1; i > 0; --i)
         std::swap (body[(size_t) i], body[(size_t) rng.nextInt (i + 1)]);
@@ -179,6 +179,9 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums)
             case T::DrumMoves: add (t, [&] (Move& m) { m.mode = pick ({ 0, 0, 2, 1 }); m.knob = 0.6f + 0.35f * rng.nextFloat(); }); break;
             case T::Hats:      add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 2 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
             case T::Stutter:   add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 1, 2 }); m.division = pick ({ 1, 2, 2, 3 }); m.knob = 0.3f + 0.45f * rng.nextFloat(); }); break;
+            case T::Riser:     add (t, [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 6, 7, 7, 8 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
+            case T::Pump:      add (t, [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 4, 4, 3 }); m.knob = 0.4f + 0.45f * rng.nextFloat(); }); break;
+            case T::RevCrash:  add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 2 }); m.division = pick ({ 5, 6, 6, 7 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
             default: break;
         }
     }
@@ -195,6 +198,12 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums)
         case 2: add (T::Stutter,  [&] (Move& m) { m.mode = 1; m.division = pick ({ 2, 3 }); m.knob = 0.25f + 0.3f * rng.nextFloat(); }); break;
         default: break; // straight into the drop
     }
+
+    // sometimes a gap right before the drop, and something on the downbeat
+    if (rng.nextFloat() < 0.25f)
+        add (T::Gap, [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 3, 4, 4 }); m.knob = 0.8f + 0.2f * rng.nextFloat(); });
+    if (rng.nextFloat() < 0.35f)
+        add (pick ({ 0, 1 }) == 0 ? T::Impact : T::Boom, [&] (Move& m) { m.mode = rng.nextInt (3); m.knob = 0.5f + 0.4f * rng.nextFloat(); });
 
     std::stable_sort (moves.begin(), moves.end(), [] (const Move& a, const Move& b) { return canonicalOrder (a.type) < canonicalOrder (b.type); });
     return moves;

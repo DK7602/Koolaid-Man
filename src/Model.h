@@ -24,10 +24,20 @@ enum class MoveType : int
     Bass808,
     Hats,
     Atmos,
+    // page 2: classic build & drop tools
+    Riser,      // noise riser / uplifter into the drop
+    RevCrash,   // reversed crash swelling into the drop
+    Pump,       // sidechain pump
+    Gap,        // the "breath" right before the drop
+    Impact,     // hit + crash on the drop (plays after the drop)
+    Boom,       // sub boom on the drop (plays after the drop)
     NumTypes
 };
 
 constexpr int numMoveTypes = (int) MoveType::NumTypes;
+
+/** Moves that play after the drop (on the downbeat) rather than inside the build zone. */
+inline bool playsAfterDrop (MoveType t) { return t == MoveType::Impact || t == MoveType::Boom; }
 
 //==============================================================================
 /** Note divisions used by the card dropdowns. Values are in quarter-note beats

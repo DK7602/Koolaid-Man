@@ -325,6 +325,41 @@ public:
             }
         }
 
+        // ---- after-drop moves: the render (and export) grow by a bar-aligned tail
+        {
+            auto& m = p.getModel();
+            const double bpb = m.beatsPerBar();
+            m.zoneEnd = std::floor (m.clipLengthBeats() / bpb + 1.0e-3) * bpb;   // drop at the very end
+            m.zoneStart = juce::jmax (0.0, m.zoneEnd - bpb);
+            m.moves = { km::defaultMove (km::MoveType::Riser), km::defaultMove (km::MoveType::Impact) };
+            p.getSettings().exportRange = km::ExportRange::FullClip;
+            p.getSettings().exportFormat = km::ExportFormat::Wav24;
+            p.modelChanged (true);
+            waitForRender (p);
+            auto r = p.getResult();
+            const double clipBars = m.clipLengthBeats() / bpb;
+            const double outBars = r->mix.getNumSamples() / (r->samplesPerBeat * bpb);
+            check (outBars > clipBars + 0.9 && std::abs (outBars - std::round (outBars)) < 1.0e-3,
+                   "Impact adds a whole-bar tail after the drop (" + juce::String (clipBars, 2) + " -> " + juce::String (outBars, 2) + " bars)");
+            juce::String err;
+            auto f = p.exportAudio (err);
+            juce::AudioFormatManager fm;
+            fm.registerBasicFormats();
+            std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
+            check (rd != nullptr && std::abs ((double) rd->lengthInSamples - r->mix.getNumSamples()) < 2.0, "export includes the tail");
+            rd.reset();
+            f.deleteFile();
+        }
+
+        // ---- page 2 cards
+        {
+            std::unique_ptr<KoolaidEditor> ed (dynamic_cast<KoolaidEditor*> (p.createEditor()));
+            ed->showCardPage (1);
+            auto img = ed->snapshot (0.5f);
+            ed->showCardPage (0);
+            check (img.isValid(), "BUILD & DROP page renders");
+        }
+
         // ---- editor lifecycle on the real processor
         {
             for (int i = 0; i < 3; ++i)

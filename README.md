@@ -51,6 +51,19 @@ Every push builds the plug-in on GitHub Actions:
 | **Hat Detect** | Sens (+ meter) | Hat roll, triplet roll, open hats, using your clip's hats |
 | **Atmos Reverb** | Size · Mix | Hall, Cathedral, Shimmer, Cloud, Plate, Deep Space, Reverse Swell |
 
+**BUILD & DROP** page (tabs in the cards panel's title bar):
+
+![Build & Drop page](docs/screenshot-page2.png)
+
+| Card | Knob / value | Variations |
+|---|---|---|
+| **Noise Riser** | Level · Length | Noise Sweep, Uplifter, Snare Wash |
+| **Reverse Crash** | Level · Length | Crash, Splash, Dark Wash |
+| **Sidechain Pump** | Depth · Rate | Smooth, Hard, Rising |
+| **Drop Gap** | Depth · Length | Silence, Low-pass, High-pass |
+| **Impact** | Level · Tail | Hit + Crash, Hit Only, Crash + Downlifter (plays on the drop) |
+| **Sub Boom** | Level · Length | Deep, Punchy, Long Dive (plays on the drop) |
+
 **Detection** finds the snare, 808/kick and hi-hats in the two-track (or in an optional drum/808
 stem on the **AUDIO 2** tab) and uses those exact hits for the drum moves. Anything it can't find
 falls back to a built-in sound. The **FX LAYER** tab shows just what the moves add.

@@ -279,7 +279,7 @@ void KoolaidProcessor::handleAsyncUpdate()
         retired.push_back ({ currentResult, juce::Time::getMillisecondCounter() });
     currentResult = r;
     audioResult.store (currentResult.get());
-    renderPending.store (false);
+    renderPending.store (currentResult->requestId != lastRequestId);   // an older render may land first
     updatePlayRange();
 }
 
@@ -316,7 +316,7 @@ void KoolaidProcessor::timerCallback()
 void KoolaidProcessor::requestRender()
 {
     renderPending.store (true);
-    renderThread.request (model);
+    renderThread.request (model, ++lastRequestId);
 }
 
 void KoolaidProcessor::modelChanged (bool markPresetDirty)
@@ -339,7 +339,9 @@ void KoolaidProcessor::updatePlayRange()
 {
     const double sr = model.music != nullptr ? model.music->sampleRate : engineRate;
     const double spb = model.samplesPerBeat (sr);
-    const juce::int64 len = model.music != nullptr ? model.music->audio.getNumSamples() : 0;
+    juce::int64 len = model.music != nullptr ? model.music->audio.getNumSamples() : 0;
+    if (currentResult != nullptr && currentResult->source == model.music)
+        len = juce::jmax<juce::int64> (len, currentResult->mix.getNumSamples());   // includes an after-drop tail
     const auto zs = (juce::int64) (model.zoneStart * spb), ze = (juce::int64) (model.zoneEnd * spb);
     const auto bar = (juce::int64) (model.beatsPerBar() * spb);
 
@@ -587,7 +589,10 @@ void KoolaidProcessor::roll()
 juce::String KoolaidProcessor::exportRangeLabel (ExportRange r) const
 {
     const double bpb = model.beatsPerBar();
-    const double clip = model.clipLengthBeats();
+    // Impact / Sub Boom can add a tail after the clip
+    double clip = model.clipLengthBeats();
+    if (currentResult != nullptr && currentResult->source == model.music && currentResult->samplesPerBeat > 0)
+        clip = juce::jmax (clip, currentResult->mix.getNumSamples() / currentResult->samplesPerBeat);
     switch (r)
     {
         case ExportRange::FullClip:  return "FULL CLIP (" + formatLength (clip, bpb) + ")";

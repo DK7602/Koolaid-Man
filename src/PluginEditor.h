@@ -28,6 +28,7 @@ public:
     juce::Image snapshot (float scale);
     void openManual();
     void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
+    void showCardPage (int p) { if (cards) cards->setPage (p); }
 
 private:
     /** Paints the artwork; hosts every control in design coordinates. */

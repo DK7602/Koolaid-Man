@@ -19,7 +19,9 @@ struct RenderResult
     juce::int64 zoneStart = 0, zoneEnd = 0;
     float limiterReductionDb = 0.0f;    // how hard the true-peak limiter worked (<= 0)
     float ceilingDb = -1.0f;
+    int postLength = 0;                 // samples rendered after the drop (Impact / Sub Boom)
     int version = 0;
+    int requestId = 0;                  // which request this render answers
 };
 using ResultPtr = std::shared_ptr<const RenderResult>;
 
@@ -33,7 +35,7 @@ public:
     RenderThread();
     ~RenderThread() override;
 
-    void request (const DropModel& model);
+    void request (const DropModel& model, int requestId = 0);
 
     /** Called on the render thread when a result is ready. */
     std::function<void (ResultPtr)> onResult;
@@ -45,6 +47,7 @@ private:
 
     juce::CriticalSection lock;
     std::unique_ptr<DropModel> pending;
+    int pendingId = 0;
     juce::WaitableEvent wake;
     int version = 0;
 

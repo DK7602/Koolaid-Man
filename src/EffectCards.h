@@ -14,6 +14,10 @@ public:
     ~EffectCards();
 
     void refresh();
+    void setPage (int);          // 0 = main moves, 1 = build & drop
+    int getPage() const { return page; }
+    void followSelection();      // shows the page of the selected stack move
+    std::function<void()> onPageChanged;
 
     std::function<void()> onEdited;     // model changed -> render
     std::function<void()> onStackChanged;
@@ -26,10 +30,13 @@ private:
     bool anyEnabled (km::MoveType) const;
     void togglePower (km::MoveType);
     void showTitleMenu (Card&);
-    void showValueMenu (Card&);
+    void showValueMenu (Card&, juce::Component* anchor = nullptr);
     void selectType (km::MoveType);
 
     KoolaidProcessor& proc;
     MoveStackView& stack;
     std::vector<std::unique_ptr<Card>> cards;
+    std::unique_ptr<juce::Component> page2Panel;
+    std::vector<std::unique_ptr<juce::Component>> tabs;
+    int page = 0;
 };

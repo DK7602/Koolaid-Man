@@ -315,7 +315,12 @@ void SkinButton::setLit (bool b)
 void SkinButton::paint (juce::Graphics& g)
 {
     auto local = getLocalBounds().toFloat();
-    if (! lit)
+    if (! artSource.isEmpty())
+    {
+        const auto& img = lit ? Skin::get().image() : Skin::get().offImage();
+        g.drawImage (img, 0, 0, getWidth(), getHeight(), artSource.getX(), artSource.getY(), artSource.getWidth(), artSource.getHeight());
+    }
+    else if (! lit)
     {
         auto region = litRegion.isEmpty() ? getBounds() : litRegion;
         auto dest = region.translated (-getX(), -getY());
