@@ -1,0 +1,24 @@
+KOOLAID MAN - Beat-Drop Creator (Windows)
+=========================================
+
+INSTALL (Cubase 14 Artist or any VST3 host)
+1. Close Cubase.
+2. Copy the whole "Koolaid Man.vst3" folder to:
+       C:\Program Files\Common Files\VST3\
+3. Start Cubase. If it doesn't show up: Studio > VST Plug-in Manager > Rescan.
+   It's an Insert effect under "Tools" (vendor "Koolaid Man").
+
+"Koolaid Man.exe" is a standalone version (no DAW needed) - handy for trying it out.
+
+QUICK START IN CUBASE
+1. Put Koolaid Man on the insert of your two-track (the audio track with the bars before the drop).
+2. DRAG IN AUDIO:
+     - drag a WAV/AIFF/FLAC/MP3 onto the plugin (from Explorer or Cubase's MediaBay/Pool), or
+     - click the CAPTURE button (top-right of the waveform) and press play in Cubase - it records
+       this track from the next bar line until you stop.
+3. Drag the pink BUILD ZONE (or use LENGTH / DROP AT) so it ends where the drop hits.
+4. BUILD THE DROP: turn moves on in the cards / stack, or hit ROLL for an instant idea.
+5. PREVIEW: with SYNC TO SESSION lit, press play in Cubase - the drop plays in time at the right bars.
+6. Drag EXPORT / DRAG TO DAW onto a new audio track. Put it at the bar shown in the tooltip /
+   message (it is exactly bar-aligned), turn the plugin's SYNC TO SESSION off, done.
+   Exports are also saved in Documents\Koolaid Man\Exports.

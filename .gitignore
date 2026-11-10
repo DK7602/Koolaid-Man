@@ -1,0 +1,11 @@
+build/
+build-*/
+cmake-build-*/
+.vs/
+.vscode/
+.idea/
+*.user
+.DS_Store
+test-wavs/
+*.wav
+snapshot*.png

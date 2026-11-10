@@ -1,0 +1,14 @@
+KOOLAID MAN - Beat-Drop Creator (macOS, Intel + Apple Silicon)
+=============================================================
+
+INSTALL
+  VST3 (Cubase):  copy "Koolaid Man.vst3"       to  ~/Library/Audio/Plug-Ins/VST3/
+  AU (Logic etc): copy "Koolaid Man.component"  to  ~/Library/Audio/Plug-Ins/Components/
+  Standalone:     copy "Koolaid Man.app"        to  /Applications
+
+These builds are not notarised (personal use). If macOS blocks them, run in Terminal:
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Koolaid Man.vst3"
+  xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"Koolaid Man.component"
+then rescan plug-ins in your DAW.
+
+See the Windows notes / README for the quick start - it works the same.

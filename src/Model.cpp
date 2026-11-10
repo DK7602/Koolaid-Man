@@ -1,0 +1,289 @@
+#include "Model.h"
+
+namespace km
+{
+
+const std::vector<Division>& divisions()
+{
+    static const std::vector<Division> d {
+        { "1/64",  "1/64",   1.0 / 64.0 },
+        { "1/32",  "1/32",   1.0 / 32.0 },
+        { "1/16",  "1/16",   1.0 / 16.0 },
+        { "1/8",   "1/8",    1.0 / 8.0 },
+        { "1/4",   "1/4",    1.0 / 4.0 },
+        { "1/2",   "1/2",    1.0 / 2.0 },
+        { "1 BAR", "1 Bar",  -1.0 },
+        { "2 BAR", "2 Bars", -2.0 },
+        { "4 BAR", "4 Bars", -4.0 },
+    };
+    return d;
+}
+
+double divisionToBeats (int index, double beatsPerBar)
+{
+    const auto& d = divisions();
+    index = juce::jlimit (0, (int) d.size() - 1, index);
+    const double w = d[(size_t) index].wholeNotes;
+    return w < 0 ? -w * beatsPerBar : w * 4.0;
+}
+
+const juce::StringArray& atmosTypeNames()
+{
+    static const juce::StringArray names { "Hall", "Cathedral", "Shimmer", "Cloud", "Plate", "Deep Space", "Reverse Swell" };
+    return names;
+}
+
+const char* typeName (MoveType t)
+{
+    switch (t)
+    {
+        case MoveType::Reverse:   return "Reverse";
+        case MoveType::Chops:     return "Chop";
+        case MoveType::Stutter:   return "Stutter";
+        case MoveType::Pitch:     return "Pitch";
+        case MoveType::TapeStop:  return "Tape Stop";
+        case MoveType::Filter:    return "Filter";
+        case MoveType::DrumMoves: return "Drums";
+        case MoveType::Bass808:   return "808";
+        case MoveType::Hats:      return "Hats";
+        case MoveType::Atmos:     return "Atmos";
+        default: break;
+    }
+    return "";
+}
+
+const char* cardTitle (MoveType t)
+{
+    switch (t)
+    {
+        case MoveType::Reverse:   return "REVERSE";
+        case MoveType::Chops:     return "CHOPS";
+        case MoveType::Stutter:   return "STUTTER";
+        case MoveType::Pitch:     return "PITCH";
+        case MoveType::TapeStop:  return "TAPE STOP";
+        case MoveType::Filter:    return "FILTERS";
+        case MoveType::DrumMoves: return "DRUM MOVES";
+        case MoveType::Bass808:   return "808 DETECT";
+        case MoveType::Hats:      return "HAT DETECT";
+        case MoveType::Atmos:     return "ATMOS REVERB";
+        default: break;
+    }
+    return "";
+}
+
+juce::StringArray modeNames (MoveType t)
+{
+    switch (t)
+    {
+        case MoveType::Reverse:   return { "Into The Drop", "Pre-verse (Downbeat)", "Whole Zone" };
+        case MoveType::Chops:     return { "Gate", "Shuffle", "Tremolo" };
+        case MoveType::Stutter:   return { "Repeat", "Accelerate", "Beat Repeat" };
+        case MoveType::Pitch:     return { "Ramp", "Static" };
+        case MoveType::TapeStop:  return { "Stop", "Spin-Up" };
+        case MoveType::Filter:    return { "LP Sweep", "HP Sweep", "BP Sweep", "LP Static", "HP Static" };
+        case MoveType::DrumMoves: return { "Fill", "Gate", "Roll" };
+        case MoveType::Bass808:   return { "Slide Down", "Slide Up", "Sub Swell" };
+        case MoveType::Hats:      return { "Roll", "Triplet Roll", "Open Hats" };
+        case MoveType::Atmos:     return atmosTypeNames();
+        default: break;
+    }
+    return {};
+}
+
+juce::String knobName (MoveType t, int which)
+{
+    switch (t)
+    {
+        case MoveType::Reverse:   return "Mix";
+        case MoveType::Chops:     return "Depth";
+        case MoveType::Stutter:   return "Span";
+        case MoveType::Pitch:     return "Curve";
+        case MoveType::TapeStop:  return "Brake";
+        case MoveType::Filter:    return which == 0 ? "Cutoff" : "Res";
+        case MoveType::DrumMoves: return "Level";
+        case MoveType::Bass808:   return "Sens";
+        case MoveType::Hats:      return "Sens";
+        case MoveType::Atmos:     return which == 0 ? "Size" : "Mix";
+        default: break;
+    }
+    return {};
+}
+
+static double stutterSpanBars (float knob) { return std::pow (2.0, -2.0 + 4.0 * (double) knob); }
+static double filterCutoffHz (float knob)  { return 20.0 * std::pow (1000.0, (double) knob); }
+
+juce::String knobValueText (const Move& m, int which)
+{
+    const float v = which == 0 ? m.knob : m.knob2;
+    switch (m.type)
+    {
+        case MoveType::Stutter:
+        {
+            const double bars = stutterSpanBars (v);
+            return bars < 1.0 ? juce::String (bars * 4.0, 1) + " beats" : juce::String (bars, 1) + " bars";
+        }
+        case MoveType::Filter:
+            if (which == 0)
+            {
+                const double hz = filterCutoffHz (v);
+                return hz >= 1000.0 ? juce::String (hz / 1000.0, 1) + " kHz" : juce::String ((int) hz) + " Hz";
+            }
+            break;
+        default: break;
+    }
+    return juce::String (juce::roundToInt (v * 100.0f)) + "%";
+}
+
+juce::String Move::stackLabel() const
+{
+    const auto& d = divisions();
+    const juce::String div = d[(size_t) juce::jlimit (0, (int) d.size() - 1, division)].longLabel;
+    const auto modes = modeNames (type);
+    const juce::String modeName = modes[juce::jlimit (0, juce::jmax (0, modes.size() - 1), mode)];
+
+    switch (type)
+    {
+        case MoveType::Reverse:
+        {
+            juce::String len = div.containsChar ('/') ? div + " Bar" : div;
+            return mode == 0 ? "Reverse (" + len + ")" : "Reverse (" + len + ", " + (mode == 1 ? "Pre-verse" : "Zone") + ")";
+        }
+        case MoveType::Chops:     return "Chop (" + div + ", " + modeName + ")";
+        case MoveType::Stutter:   return mode == 0 ? "Stutter (" + div + ")" : "Stutter (" + div + ", " + modeName + ")";
+        case MoveType::Pitch:
+        {
+            juce::String st = (semitones > 0 ? "+" : (semitones < 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x93")) : juce::String()))
+                              + juce::String (std::abs (semitones)) + " st";
+            return mode == 0 ? "Pitch (" + st + ")" : "Pitch (" + st + ", Static)";
+        }
+        case MoveType::TapeStop:  return (mode == 0 ? "Tape Stop (" : "Tape Spin-Up (") + div + ")";
+        case MoveType::Filter:    return "Filter (" + modeName + ")";
+        case MoveType::DrumMoves: return "Drum " + modeName + " (Snare)";
+        case MoveType::Bass808:   return "808 (" + modeName + ")";
+        case MoveType::Hats:      return "Hats (" + modeName + ")";
+        case MoveType::Atmos:     return "Atmos (" + modeName + ")";
+        default: break;
+    }
+    return {};
+}
+
+Move defaultMove (MoveType t)
+{
+    Move m;
+    m.type = t;
+    switch (t)
+    {
+        case MoveType::Reverse:   m.division = 5; m.knob = 0.85f; break;
+        case MoveType::Chops:     m.division = 3; m.knob = 0.80f; break;
+        case MoveType::Stutter:   m.division = 2; m.knob = 0.50f; break;
+        case MoveType::Pitch:     m.semitones = -12; m.knob = 0.62f; break;
+        case MoveType::TapeStop:  m.division = 5; m.knob = 0.50f; break;
+        case MoveType::Filter:    m.knob = 0.38f; m.knob2 = 0.55f; break;
+        case MoveType::DrumMoves: m.knob = 0.8f; break;
+        case MoveType::Bass808:   m.knob = 0.8f; break;
+        case MoveType::Hats:      m.knob = 0.7f; break;
+        case MoveType::Atmos:     m.knob = 0.6f; m.knob2 = 0.45f; m.mode = 1; break;
+        default: break;
+    }
+    return m;
+}
+
+int canonicalOrder (MoveType t)
+{
+    switch (t)
+    {
+        case MoveType::DrumMoves: return 0;
+        case MoveType::Hats:      return 1;
+        case MoveType::Chops:     return 2;
+        case MoveType::Stutter:   return 3;
+        case MoveType::Pitch:     return 4;
+        case MoveType::Filter:    return 5;
+        case MoveType::Atmos:     return 6;
+        case MoveType::Bass808:   return 7;
+        case MoveType::Reverse:   return 8;
+        case MoveType::TapeStop:  return 9;
+        default: break;
+    }
+    return 10;
+}
+
+juce::ValueTree Move::toTree() const
+{
+    juce::ValueTree t ("MOVE");
+    t.setProperty ("type", (int) type, nullptr);
+    t.setProperty ("enabled", enabled, nullptr);
+    t.setProperty ("division", division, nullptr);
+    t.setProperty ("semitones", semitones, nullptr);
+    t.setProperty ("knob", knob, nullptr);
+    t.setProperty ("knob2", knob2, nullptr);
+    t.setProperty ("mode", mode, nullptr);
+    t.setProperty ("seed", (int) seed, nullptr);
+    return t;
+}
+
+Move Move::fromTree (const juce::ValueTree& t)
+{
+    Move m = defaultMove ((MoveType) juce::jlimit (0, numMoveTypes - 1, (int) t.getProperty ("type", 0)));
+    m.enabled   = t.getProperty ("enabled", true);
+    m.division  = juce::jlimit (0, (int) divisions().size() - 1, (int) t.getProperty ("division", m.division));
+    m.semitones = juce::jlimit (-24, 24, (int) t.getProperty ("semitones", m.semitones));
+    m.knob      = juce::jlimit (0.0f, 1.0f, (float) t.getProperty ("knob", m.knob));
+    m.knob2     = juce::jlimit (0.0f, 1.0f, (float) t.getProperty ("knob2", m.knob2));
+    m.mode      = juce::jlimit (0, juce::jmax (0, modeNames (m.type).size() - 1), (int) t.getProperty ("mode", m.mode));
+    m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
+    return m;
+}
+
+bool Move::operator== (const Move& o) const
+{
+    return type == o.type && enabled == o.enabled && division == o.division && semitones == o.semitones
+        && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed;
+}
+
+juce::StringArray playbackModeNames()   { return { "PRE-DROP", "FULL CLIP", "INTO THE DROP", "ORIGINAL (A/B)" }; }
+juce::StringArray exportFormatNames()   { return { "WAV (16-BIT)", "WAV (24-BIT)", "WAV (32 FLOAT)", "AIFF (24-BIT)" }; }
+
+double DropModel::clipLengthBeats() const
+{
+    if (music == nullptr || music->sampleRate <= 0)
+        return 0.0;
+    return music->audio.getNumSamples() / samplesPerBeat (music->sampleRate);
+}
+
+juce::String formatBarPosition (double beats, const DropModel& m, bool withSixteenths)
+{
+    const double bpb = m.beatsPerBar();
+    const double beatUnit = 4.0 / m.tsDen;
+    const double abs = (m.clipStartBar - 1) * bpb + beats + 1.0e-3;   // tolerate sample rounding
+    const int bar = (int) std::floor (abs / bpb) + 1;
+    const double rem = abs - (bar - 1) * bpb;
+    const int beat = (int) std::floor (rem / beatUnit) + 1;
+    const int six = (int) std::floor ((rem - (beat - 1) * beatUnit) / 0.25) + 1;
+    juce::String s = juce::String (bar) + "." + juce::String (beat);
+    if (withSixteenths)
+        s << "." << six;
+    return s;
+}
+
+juce::String formatLength (double beats, double bpb)
+{
+    const double bars = beats / bpb;
+    const auto isInt = [] (double v) { return std::abs (v - std::round (v)) < 1.0e-6; };
+    if (isInt (bars))
+    {
+        const int n = (int) std::round (bars);
+        return juce::String (n) + (n == 1 ? " BAR" : " BARS");
+    }
+    if (std::abs (bars - 0.5) < 1.0e-6) return "1/2 BAR";
+    if (std::abs (bars - 0.25) < 1.0e-6) return "1/4 BAR";
+    const int wholeBars = (int) std::floor (bars + 1.0e-6);
+    const double restBeats = beats - wholeBars * bpb;
+    juce::String s;
+    if (wholeBars > 0)
+        s << wholeBars << (wholeBars == 1 ? " BAR " : " BARS ");
+    s << (isInt (restBeats) ? juce::String ((int) std::round (restBeats)) : juce::String (restBeats, 2))
+      << (std::abs (restBeats - 1.0) < 1.0e-6 ? " BEAT" : " BEATS");
+    return s;
+}
+
+} // namespace km
