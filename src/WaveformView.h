@@ -49,6 +49,7 @@ private:
 
     KoolaidProcessor& proc;
     juce::Image topStrip, bottomStrip;   // hides the zone outline baked into the mockup
+    int stripVersion = -1;
     int tab = 0;
     Peaks peaks;
     int peaksTab = -1;

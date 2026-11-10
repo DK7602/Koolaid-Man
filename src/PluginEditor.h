@@ -9,7 +9,8 @@
 
 class KoolaidEditor : public juce::AudioProcessorEditor,
                       public juce::FileDragAndDropTarget,
-                      private juce::Timer
+                      private juce::Timer,
+                      private juce::ChangeListener
 {
 public:
     explicit KoolaidEditor (KoolaidProcessor&);
@@ -37,6 +38,7 @@ private:
     private:
         juce::Image scaled;
         float scaledFor = 0.0f;
+        int scaledVersion = -1;
     };
 
     class Bubble : public juce::Component
@@ -49,6 +51,8 @@ private:
     };
 
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;   // theme switched
+    void toggleTheme();
     void refreshAll();
     void refreshTransport();
     void refreshDetection();
@@ -123,6 +127,7 @@ private:
     Box formatBox { { 1262, 1002, 145, 27 }, { 1266, 1005, 116, 21 }, 18.0f, juce::Justification::centredLeft };
 
     Btn manualHotspot { { 22, 262, 106, 46 }, 8.0f };
+    Btn mascotBtn { { 96, 10, 336, 238 }, 30.0f };
     ManualView manual;
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;

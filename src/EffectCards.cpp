@@ -16,7 +16,7 @@ namespace
         void paint (juce::Graphics& g) override
         {
             if (isOn) return;
-            g.setColour (juce::Colour (0x4a0c0618));
+            g.setColour (col::cardShade);
             g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (3.0f), 12.0f);
         }
         bool isOn = true;
@@ -81,7 +81,8 @@ namespace
                 g.fillRoundedRectangle (r.reduced (1.5f), 6.0f);
                 g.setColour (juce::Colour (0xff8a80aa));
                 g.drawRoundedRectangle (r.reduced (1.5f), 6.0f, 1.2f);
-                drawShadowText (g, text, r, Skin::get().bold (19.0f));
+                drawShadowText (g, text, r, Skin::get().bold (19.0f), juce::Justification::centred,
+                                juce::Colour (0xfff7f3ff), juce::Colour (0x8c000000));   // on the card: always light-on-dark
             }
             if (isMouseOver())
             {
@@ -197,6 +198,7 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
             const auto b = d.valueBox;
             c->value = std::make_unique<SkinValueBox> (b, juce::Rectangle<int> (b.getX() + 3, b.getY() + 3, b.getWidth() - 23, b.getHeight() - 6), 18.0f);
             c->value->setFont (Skin::get().wideBold (16.5f));
+            c->value->setFixedDarkStyle();
             c->value->onClick = [this, card] { showValueMenu (*card); };
             c->value->onWheel = [this, card] (float dy)
             {

@@ -19,10 +19,11 @@ void KoolaidEditor::Root::paint (juce::Graphics& g)
     if (phys > 0.0f && std::abs (phys - 1.0f) > 0.01f)
     {
         // pre-scale the artwork once per scale for a crisp, alias-free background
-        if (std::abs (phys - scaledFor) > 0.001f || ! scaled.isValid())
+        if (std::abs (phys - scaledFor) > 0.001f || ! scaled.isValid() || scaledVersion != Skin::get().version())
         {
             scaled = art.rescaled (juce::roundToInt (designW * phys), juce::roundToInt (designH * phys), juce::Graphics::highResamplingQuality);
             scaledFor = phys;
+            scaledVersion = Skin::get().version();
         }
         g.drawImageTransformed (scaled, juce::AffineTransform::scale ((float) designW / (float) scaled.getWidth(),
                                                                        (float) designH / (float) scaled.getHeight()));
@@ -48,7 +49,7 @@ void KoolaidEditor::Bubble::show (juce::Component& near, const juce::String& t)
 void KoolaidEditor::Bubble::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced (1.0f);
-    g.setColour (juce::Colour (0xf0150b26));
+    g.setColour (col::menuBg.withAlpha (0.95f));
     g.fillRoundedRectangle (r, 8.0f);
     g.setColour (col::cyan);
     g.drawRoundedRectangle (r, 8.0f, 1.5f);
@@ -90,6 +91,11 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
         root.addAndMakeVisible (*detectText[i]);
     }
     root.addChildComponent (bubble);
+    root.addAndMakeVisible (mascotBtn);
+    mascotBtn.setShowHover (false);
+    mascotBtn.setTooltip ("Click Koolaid Man to switch between the dark and light look");
+    mascotBtn.onClick = [this] { toggleTheme(); };
+    Skin::get().addChangeListener (this);
     root.addAndMakeVisible (manualHotspot);
     manualHotspot.setTooltip ("Open the Koolaid Man manual");
     manualHotspot.onClick = [this] { openManual(); };
@@ -383,6 +389,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
 
 KoolaidEditor::~KoolaidEditor()
 {
+    Skin::get().removeChangeListener (this);
     stopTimer();
     proc.onModelReplaced = nullptr;
     cards.reset();
@@ -603,6 +610,19 @@ void KoolaidEditor::askNumber (const juce::String& title, const juce::String& me
     }), true);
 }
 
+void KoolaidEditor::toggleTheme()
+{
+    Skin::get().setTheme (Skin::get().getTheme() == Theme::light ? Theme::dark : Theme::light);
+}
+
+void KoolaidEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    laf.applyTheme();
+    manual.themeChanged();
+    refreshAll();
+    root.repaint();
+}
+
 void KoolaidEditor::openManual()
 {
     bubble.setVisible (false);
@@ -656,6 +676,10 @@ void KoolaidEditor::showGearMenu()
     for (int i = 0; i < 6; ++i)
         sizeMenu.addItem (30 + i, juce::String (juce::roundToInt (sizes[i] * 100)) + "%", true, std::abs (s.uiScale - sizes[i]) < 0.01f);
     menu.addSubMenu ("Window Size", sizeMenu);
+    juce::PopupMenu themeMenu;
+    themeMenu.addItem (70, "Dark", true, Skin::get().getTheme() == Theme::dark);
+    themeMenu.addItem (71, "Light", true, Skin::get().getTheme() == Theme::light);
+    menu.addSubMenu ("Theme (or click Koolaid Man)", themeMenu);
     menu.addSeparator();
     menu.addItem (40, "Open Export Folder");
     menu.addItem (41, "Open Presets Folder");
@@ -672,6 +696,8 @@ void KoolaidEditor::showGearMenu()
             askClipBar();
         else if (r == 2)
             openManual();
+        else if (r == 70 || r == 71)
+            Skin::get().setTheme (r == 71 ? Theme::light : Theme::dark);
         else if (r >= 10 && r <= 12) { st.snap = r - 10; }
         else if (r == 20 || r == 21) { st.previewReplaces = r == 20; zoneEdited(); }
         else if (r >= 30 && r < 36)  { setSize (juce::roundToInt (designW * sizes[r - 30]), juce::roundToInt (designH * sizes[r - 30])); }

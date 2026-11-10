@@ -10,26 +10,46 @@ Skin& Skin::get()
     return instance;
 }
 
+static juce::Image loadArt (const void* data, int size)
+{
+    auto img = juce::ImageCache::getFromMemory (data, size);
+    if (! img.isValid())
+        img = juce::Image (juce::Image::ARGB, designW, designH, true);
+    return img.convertedToFormat (juce::Image::ARGB);
+}
+
+/** A greyed-out copy of the art for "off" states (darker in dark mode, paler in light mode). */
+static juce::Image makeOff (const juce::Image& src, bool light)
+{
+    auto off = src.createCopy();
+    juce::Image::BitmapData bd (off, juce::Image::BitmapData::readWrite);
+    for (int y = 0; y < bd.height; ++y)
+        for (int x = 0; x < bd.width; ++x)
+        {
+            const auto c = bd.getPixelColour (x, y);
+            const float lum = 0.3f * c.getFloatRed() + 0.55f * c.getFloatGreen() + 0.15f * c.getFloatBlue();
+            const auto grey = juce::Colour::fromFloatRGBA (lum, lum, lum * 1.08f, c.getFloatAlpha());
+            const auto g = c.interpolatedWith (grey, 0.88f);
+            bd.setPixelColour (x, y, light ? g.interpolatedWith (juce::Colour (0xffeae6f2), 0.45f) : g.withMultipliedBrightness (0.55f));
+        }
+    return off;
+}
+
 Skin::Skin()
 {
-    art = juce::ImageCache::getFromMemory (KoolaidBinary::skin_png, KoolaidBinary::skin_pngSize);
-    if (! art.isValid())
-        art = juce::Image (juce::Image::ARGB, designW, designH, true);
-    art = art.convertedToFormat (juce::Image::ARGB);
+    art = loadArt (KoolaidBinary::skin_png, KoolaidBinary::skin_pngSize);
+    artLight = loadArt (KoolaidBinary::skin_light_png, KoolaidBinary::skin_light_pngSize);
+    off = makeOff (art, false);
+    offLight = makeOff (artLight, true);
 
-    // a greyed-out copy of the art for "off" states
-    off = art.createCopy();
-    {
-        juce::Image::BitmapData bd (off, juce::Image::BitmapData::readWrite);
-        for (int y = 0; y < bd.height; ++y)
-            for (int x = 0; x < bd.width; ++x)
-            {
-                const auto c = bd.getPixelColour (x, y);
-                const float lum = 0.3f * c.getFloatRed() + 0.55f * c.getFloatGreen() + 0.15f * c.getFloatBlue();
-                const auto grey = juce::Colour::fromFloatRGBA (lum, lum, lum * 1.08f, c.getFloatAlpha());
-                bd.setPixelColour (x, y, c.interpolatedWith (grey, 0.88f).withMultipliedBrightness (0.55f));
-            }
-    }
+    juce::PropertiesFile::Options o;
+    o.applicationName = "Koolaid Man";
+    o.folderName = "Koolaid Man";
+    o.filenameSuffix = "settings";
+    o.osxLibrarySubFolder = "Application Support";
+    prefs = std::make_unique<juce::PropertiesFile> (o);
+    theme = prefs->getIntValue ("theme", 0) == 1 ? Theme::light : Theme::dark;
+    applyColours();
 
     using namespace KoolaidBinary;
     tfMedium      = juce::Typeface::createSystemTypefaceFor (BarlowCondensedMedium_ttf, BarlowCondensedMedium_ttfSize);
@@ -40,8 +60,62 @@ Skin::Skin()
     tfWideBold    = juce::Typeface::createSystemTypefaceFor (BarlowBold_ttf, BarlowBold_ttfSize);
 }
 
+void Skin::setTheme (Theme t)
+{
+    if (t == theme) return;
+    theme = t;
+    ++themeVersion;
+    applyColours();
+    if (prefs != nullptr)
+    {
+        prefs->setValue ("theme", (int) t);
+        prefs->saveIfNeeded();
+    }
+    sendSynchronousChangeMessage();
+}
+
+void Skin::applyColours()
+{
+    using namespace col;
+    if (theme == Theme::light)
+    {
+        text = juce::Colour (0xff2a1747);  textDim = juce::Colour (0xff7a6a99);  shadow = juce::Colour (0xb3ffffff);
+        lavender = juce::Colour (0xff7d5fe0);
+        menuBg = juce::Colour (0xfffff7fc); menuBg2 = juce::Colour (0xffe8f3ff);
+        display = juce::Colour (0xfffdfaff); gridLine = juce::Colour (0x162a1747);
+        waveOut = juce::Colour (0xff7d5fe0); waveIn = juce::Colour (0xffff3fa8);
+        zoneTop = juce::Colour (0x66ff9ad6); zoneBot = juce::Colour (0x66ff6cc4);
+        pill = juce::Colour (0xf2ffffff);
+        rowTop = juce::Colour (0xffffffff); rowBot = juce::Colour (0xfff1eaff);
+        rowSelTop = juce::Colour (0xffffeaf6); rowSelBot = juce::Colour (0xffffd3ee);
+        rowBorder = juce::Colour (0xffc9b8ef); rowHover = juce::Colour (0xff9f84e0);
+        grip = juce::Colour (0xff5a4785); boxOff = juce::Colour (0xffffffff);
+        track = juce::Colour (0xffe6def7); thumb = juce::Colour (0xff9b86d6);
+        cardShade = juce::Colour (0x70ffffff);
+        panelTop = juce::Colour (0xfffffbfe); panelBot = juce::Colour (0xffeaf4ff);
+    }
+    else
+    {
+        text = juce::Colour (0xfff7f3ff);  textDim = juce::Colour (0xff9a90b8);  shadow = juce::Colour (0x8c000000);
+        lavender = juce::Colour (0xff9687ea);
+        menuBg = juce::Colour (0xff1c1233); menuBg2 = juce::Colour (0xff140d26);
+        display = juce::Colour (0xff0e111e); gridLine = juce::Colour (0x0fffffff);
+        waveOut = juce::Colour (0xff9887ea); waveIn = juce::Colour (0xffff6ccb);
+        zoneTop = juce::Colour (0xc0781a5c); zoneBot = juce::Colour (0xc0501040);
+        pill = juce::Colour (0xe0120a22);
+        rowTop = juce::Colour (0xff342a4c); rowBot = juce::Colour (0xff231c35);
+        rowSelTop = juce::Colour (0xff4a3170); rowSelBot = juce::Colour (0xff2f1d4a);
+        rowBorder = juce::Colour (0xff5d4f80); rowHover = juce::Colour (0xff8d7bb8);
+        grip = juce::Colour (0xebffffff); boxOff = juce::Colour (0xff1a1426);
+        track = juce::Colour (0xff15111f); thumb = juce::Colour (0xffb2a6d6);
+        cardShade = juce::Colour (0x4a0c0618);
+        panelTop = juce::Colour (0xff23173f); panelBot = juce::Colour (0xff100a1f);
+    }
+}
+
 juce::Colour Skin::pixel (int x, int y) const
 {
+    const auto& art = image();
     return art.getPixelAt (juce::jlimit (0, art.getWidth() - 1, x), juce::jlimit (0, art.getHeight() - 1, y));
 }
 
@@ -74,10 +148,10 @@ juce::Font Skin::wide (float h) const        { return fontFor (tfWide, h); }
 juce::Font Skin::wideBold (float h) const    { return fontFor (tfWideBold, h); }
 
 void drawShadowText (juce::Graphics& g, const juce::String& s, juce::Rectangle<float> r, juce::Font f,
-                     juce::Justification j, juce::Colour c)
+                     juce::Justification j, juce::Colour c, juce::Colour shadowColour)
 {
     g.setFont (f);
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.setColour (shadowColour);
     g.drawText (s, r.translated (1.0f, 1.5f), j, false);
     g.setColour (c);
     g.drawText (s, r, j, false);
@@ -91,6 +165,12 @@ juce::PopupMenu::Options menuOptionsFor (juce::Component* target)
 //==============================================================================
 KoolLookAndFeel::KoolLookAndFeel()
 {
+    applyTheme();
+}
+
+void KoolLookAndFeel::applyTheme()
+{
+    const bool light = Skin::get().getTheme() == Theme::light;
     setColour (juce::PopupMenu::backgroundColourId, col::menuBg);
     setColour (juce::PopupMenu::textColourId, col::text);
     setColour (juce::PopupMenu::highlightedBackgroundColourId, col::hotPink);
@@ -102,20 +182,20 @@ KoolLookAndFeel::KoolLookAndFeel()
     setColour (juce::AlertWindow::backgroundColourId, col::menuBg);
     setColour (juce::AlertWindow::textColourId, col::text);
     setColour (juce::AlertWindow::outlineColourId, col::hotPink);
-    setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xff0d0b18));
+    setColour (juce::TextEditor::backgroundColourId, light ? juce::Colours::white : juce::Colour (0xff0d0b18));
     setColour (juce::TextEditor::textColourId, col::text);
     setColour (juce::TextEditor::outlineColourId, col::cyan);
     setColour (juce::TextEditor::focusedOutlineColourId, col::hotPink);
     setColour (juce::TextEditor::highlightColourId, col::hotPink.withAlpha (0.5f));
     setColour (juce::CaretComponent::caretColourId, col::cyan);
-    setColour (juce::TextButton::buttonColourId, juce::Colour (0xff3a2563));
+    setColour (juce::TextButton::buttonColourId, light ? juce::Colour (0xffe9defc) : juce::Colour (0xff3a2563));
     setColour (juce::TextButton::buttonOnColourId, col::hotPink);
     setColour (juce::TextButton::textColourOffId, col::text);
     setColour (juce::TextButton::textColourOnId, col::text);
     setColour (juce::ComboBox::outlineColourId, col::cyan);
     setColour (juce::ResizableWindow::backgroundColourId, col::menuBg);
-    setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xffb2a6d6));
-    setColour (juce::ScrollBar::trackColourId, juce::Colour (0xff15111f));
+    setColour (juce::ScrollBar::thumbColourId, col::thumb);
+    setColour (juce::ScrollBar::trackColourId, col::track);
 }
 
 juce::Font KoolLookAndFeel::getPopupMenuFont() { return Skin::get().semibold (18.0f); }
@@ -125,7 +205,7 @@ juce::Font KoolLookAndFeel::getTextButtonFont (juce::TextButton&, int h) { retur
 
 void KoolLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, int height)
 {
-    juce::ColourGradient grad (juce::Colour (0xff261845), 0, 0, juce::Colour (0xff140d26), 0, (float) height, false);
+    juce::ColourGradient grad (col::menuBg, 0, 0, col::menuBg2, 0, (float) height, false);
     g.setGradientFill (grad);
     g.fillAll();
     g.setColour (col::cyan.withAlpha (0.8f));
@@ -194,7 +274,7 @@ void KoolLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangl
 void KoolLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g, const juce::Rectangle<int>& area, const juce::String& name)
 {
     g.setFont (Skin::get().heavyItalic (17.0f));
-    g.setColour (col::cyan);
+    g.setColour (Skin::get().getTheme() == Theme::light ? juce::Colour (0xffe0258f) : col::cyan);
     g.drawFittedText (name, area.withTrimmedLeft (10).withTrimmedTop (2), juce::Justification::centredLeft, 1);
 }
 
@@ -258,7 +338,7 @@ void SkinButton::paint (juce::Graphics& g)
         g.setColour (juce::Colours::black.withAlpha (0.18f));
         g.fillRoundedRectangle (local.reduced (2.0f), radius);
     }
-    else if (over)
+    else if (over && showHover)
     {
         g.setColour (juce::Colours::white.withAlpha (0.09f));
         g.fillRoundedRectangle (local.reduced (2.0f), radius);
@@ -299,23 +379,29 @@ SkinValueBox::SkinValueBox (juce::Rectangle<int> b, juce::Rectangle<int> eraseAr
 {
     setBounds (b);
     erase = eraseArea.translated (-b.getX(), -b.getY());
-    patch = Skin::get().makePatch (eraseArea);
+    eraseDesign = eraseArea;
     font = Skin::get().wideBold (fontHeight);
 }
 
 void SkinValueBox::paint (juce::Graphics& g)
 {
+    if (patchVersion != Skin::get().version())
+    {
+        patch = Skin::get().makePatch (eraseDesign);
+        patchVersion = Skin::get().version();
+    }
     g.drawImageAt (patch, erase.getX(), erase.getY());
+    const bool light = Skin::get().getTheme() == Theme::light && ! fixedDark;
     if ((onClick || onDrag) && isMouseOver (true))
     {
-        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.setColour (light ? juce::Colour (0x14ff2d9b) : juce::Colours::white.withAlpha (0.07f));
         g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (2.0f), 4.0f);
     }
     auto r = erase.toFloat().reduced (2.0f, 0.0f);
     g.setFont (font);
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.setColour (fixedDark ? juce::Colour (0x8c000000) : col::shadow);
     g.drawFittedText (text, r.translated (1.0f, 1.5f).toNearestInt(), justification, 1, 0.72f);
-    g.setColour (colour);
+    g.setColour (customColour ? colour : col::text);
     g.drawFittedText (text, r.toNearestInt(), justification, 1, 0.72f);
 }
 

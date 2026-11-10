@@ -11,6 +11,7 @@ public:
     ~ManualView() override;
 
     void open();
+    void themeChanged();
     void close();
     std::function<void()> onClose;
 

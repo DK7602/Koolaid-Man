@@ -34,6 +34,7 @@ private:
 
     KoolaidProcessor& proc;
     juce::Image patch, scrollPatch;
+    int patchVersion = -1;
     int selectedUid = 0;
     int scroll = 0;
     int hoverRow = -1;

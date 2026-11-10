@@ -13,8 +13,6 @@ namespace
 WaveformView::WaveformView (KoolaidProcessor& p) : proc (p)
 {
     setBounds (18, 350, 1408, 168);
-    topStrip = Skin::get().makePatch ({ 680, 350, 526, 7 });
-    bottomStrip = Skin::get().makePatch ({ 680, 513, 526, 6 });
     refresh();
 }
 
@@ -210,9 +208,15 @@ void WaveformView::paint (juce::Graphics& g)
     const auto& m = proc.getModel();
     const auto& s = proc.getSettings();
     auto bg = juce::Rectangle<float> (2.0f, 5.0f, (float) getWidth() - 4.0f, (float) getHeight() - 7.0f);
+    if (stripVersion != Skin::get().version())
+    {
+        topStrip = Skin::get().makePatch ({ 680, 350, 526, 7 });
+        bottomStrip = Skin::get().makePatch ({ 680, 513, 526, 6 });
+        stripVersion = Skin::get().version();
+    }
     g.drawImageAt (topStrip, 680 - getX(), 0);
     g.drawImageAt (bottomStrip, 680 - getX(), 513 - getY());
-    g.setColour (juce::Colour (0xff0e111e));
+    g.setColour (col::display);
     g.fillRoundedRectangle (bg, 7.0f);
 
     if (! proc.hasMusic() && tab != 1)
@@ -245,7 +249,7 @@ void WaveformView::paint (juce::Graphics& g)
         for (int bar = firstBar; bar * bpb <= viewStart + viewLen + 1.0e-6; ++bar)
         {
             const float x = beatToX (bar * bpb);
-            g.setColour (juce::Colours::white.withAlpha (0.06f));
+            g.setColour (col::gridLine);
             g.fillRect (x, zoneTop, 1.0f, (float) getHeight() - zoneTop - 4.0f);
             if (bar % labelEvery == 0)
                 drawShadowText (g, juce::String (m.clipStartBar + bar) + ".1", { x + 2.0f, rulerBaseline - 14.0f, 60.0f, 18.0f },
@@ -254,7 +258,7 @@ void WaveformView::paint (juce::Graphics& g)
                 for (int b = 1; b < (int) std::round (bpb); ++b)
                 {
                     const float bx = beatToX (bar * bpb + b);
-                    g.setColour (juce::Colours::white.withAlpha (0.13f));
+                    g.setColour (col::gridLine.withMultipliedAlpha (2.2f));
                     g.fillRect (bx, rulerBaseline - 3.0f, 1.0f, 5.0f);
                 }
         }
@@ -265,7 +269,7 @@ void WaveformView::paint (juce::Graphics& g)
     const juce::Rectangle<float> zone (zx0, zoneTop, zx1 - zx0, (float) getHeight() - zoneTop - 3.0f);
     if (tab != 1)
     {
-        juce::ColourGradient zg (juce::Colour (0xc0781a5c), 0, zone.getY(), juce::Colour (0xc0501040), 0, zone.getBottom(), false);
+        juce::ColourGradient zg (col::zoneTop, 0, zone.getY(), col::zoneBot, 0, zone.getBottom(), false);
         g.setGradientFill (zg);
         g.fillRect (zone);
     }
@@ -276,7 +280,7 @@ void WaveformView::paint (juce::Graphics& g)
     else if (tab == 2)
         drawWave (g, peaks, juce::Colour (0xff38d8f0), juce::Colour (0xff6ef6ff), waveCentre, waveHalf);
     else
-        drawWave (g, peaks, juce::Colour (0xff9887ea), juce::Colour (0xffff6ccb), waveCentre, waveHalf);
+        drawWave (g, peaks, col::waveOut, col::waveIn, waveCentre, waveHalf);
 
     // detected drum hits (drum tab, or music tab when analysing the mix)
     if (auto a = proc.getAnalysis(); a != nullptr && total > 0 && (tab == 1 || (tab == 0 && ! a->fromDrumStem)))
@@ -362,7 +366,7 @@ void WaveformView::paint (juce::Graphics& g)
         const auto f = Skin::get().semibold (18.0f);
         const float w = juce::jmin (bg.getWidth() - 40.0f, juce::GlyphArrangement::getStringWidth (f, status) + 36.0f);
         juce::Rectangle<float> pill (bg.getCentreX() - w * 0.5f, bg.getBottom() - 34.0f, w, 26.0f);
-        g.setColour (juce::Colour (0xe0120a22));
+        g.setColour (col::pill);
         g.fillRoundedRectangle (pill, 13.0f);
         g.setColour (col::cyan.withAlpha (0.7f));
         g.drawRoundedRectangle (pill, 13.0f, 1.2f);

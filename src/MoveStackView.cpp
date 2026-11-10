@@ -5,7 +5,6 @@ using namespace skin;
 MoveStackView::MoveStackView (KoolaidProcessor& p) : proc (p)
 {
     setBounds (28, 622, 404, 202);
-    patch = Skin::get().makePatch ({ 31, 624, 380, 199 });
 }
 
 juce::Rectangle<float> MoveStackView::rowBounds (int visibleRow) const
@@ -64,6 +63,11 @@ void MoveStackView::refresh()
 
 void MoveStackView::paint (juce::Graphics& g)
 {
+    if (patchVersion != Skin::get().version())
+    {
+        patch = Skin::get().makePatch ({ 31, 624, 380, 199 });
+        patchVersion = Skin::get().version();
+    }
     g.drawImageAt (patch, 3, 2);
     const auto& moves = proc.getModel().moves;
     const auto& sk = Skin::get();
@@ -86,11 +90,11 @@ void MoveStackView::paint (juce::Graphics& g)
         const bool selected = m.uid == selectedUid;
         const bool hovered = idx == hoverRow;
 
-        juce::ColourGradient bg (juce::Colour (selected ? 0xff4a3170 : 0xff342a4c), 0, r.getY(),
-                                 juce::Colour (selected ? 0xff2f1d4a : 0xff231c35), 0, r.getBottom(), false);
+        juce::ColourGradient bg (selected ? col::rowSelTop : col::rowTop, 0, r.getY(),
+                                 selected ? col::rowSelBot : col::rowBot, 0, r.getBottom(), false);
         g.setGradientFill (bg);
         g.fillRoundedRectangle (r, 5.0f);
-        g.setColour (selected ? col::hotPink : juce::Colour (hovered ? 0xff8d7bb8 : 0xff5d4f80));
+        g.setColour (selected ? col::hotPink : (hovered ? col::rowHover : col::rowBorder));
         g.drawRoundedRectangle (r.reduced (0.5f), 5.0f, selected ? 2.0f : 1.0f);
         if (selected)
         {
@@ -99,7 +103,7 @@ void MoveStackView::paint (juce::Graphics& g)
         }
 
         // grip
-        g.setColour (juce::Colours::white.withAlpha (0.92f));
+        g.setColour (col::grip);
         for (int gy = 0; gy < 3; ++gy)
             for (int gx = 0; gx < 2; ++gx)
                 g.fillEllipse (r.getX() + 13.0f + gx * 6.5f, r.getY() + 6.5f + gy * 5.5f, 3.6f, 3.6f);
@@ -120,7 +124,7 @@ void MoveStackView::paint (juce::Graphics& g)
         }
         else
         {
-            g.setColour (juce::Colour (0xff1a1426));
+            g.setColour (col::boxOff);
             g.fillRoundedRectangle (box, 4.0f);
             g.setColour (col::hotPink.withAlpha (0.7f));
             g.drawRoundedRectangle (box.reduced (1.0f), 4.0f, 1.5f);
@@ -145,14 +149,14 @@ void MoveStackView::paint (juce::Graphics& g)
 
     // scrollbar
     juce::Rectangle<float> track (389.0f, 6.0f, 11.0f, 192.0f);
-    g.setColour (juce::Colour (0xff15111f));
+    g.setColour (col::track);
     g.fillRoundedRectangle (track, 5.0f);
     const int count = juce::jmax (1, (int) moves.size());
     const float frac = juce::jmin (1.0f, (float) visibleRows / (float) count);
     const float thumbH = juce::jmax (24.0f, track.getHeight() * frac);
     const float pos = maxScroll() > 0 ? (float) scroll / (float) maxScroll() : 0.0f;
     juce::Rectangle<float> thumb (track.getX() + 1.5f, track.getY() + 1.5f + pos * (track.getHeight() - thumbH - 3.0f), 8.0f, thumbH);
-    g.setColour (juce::Colour (0xffb2a6d6));
+    g.setColour (col::thumb);
     g.fillRoundedRectangle (thumb, 4.0f);
 }
 

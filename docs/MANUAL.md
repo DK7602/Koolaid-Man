@@ -11,6 +11,8 @@ The four banners at the top of the window are the whole workflow, and you can cl
 
 Tip: hover over almost anything to see a tooltip that says what it does.
 
+**Light or dark?** Click **Koolaid Man himself** (the mascot at the top left) to switch between the dark look and the light look, or use **Gear menu > Theme**. Your choice is remembered for next time.
+
 # Quick Start (Cubase)
 
 1. Put **Koolaid Man** on an **Insert** slot of the audio track that holds your song (your two-track). It's under **Tools**.
@@ -178,6 +180,7 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - **Zone Snap**: bar, beat or 1/16.
 - **In-Sync Preview**: replace the track's audio, or layer on top of it.
 - **Window Size**: 50% to 125%. You can also drag the window's corner.
+- **Theme**: Dark or Light. Clicking the Koolaid Man mascot does the same. Remembered for all your projects.
 - **Open Export Folder / Open Presets Folder**.
 - **Clear AUDIO 1 / AUDIO 2**.
 

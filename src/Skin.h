@@ -11,28 +11,58 @@ namespace skin
 constexpr int designW = 1448;
 constexpr int designH = 1086;
 
+enum class Theme { dark = 0, light = 1 };
+
+/** Accent colours are fixed; the rest follow the light/dark theme (set by Skin::setTheme). */
 namespace col
 {
-    const juce::Colour text      { 0xfff7f3ff };
-    const juce::Colour textDim   { 0xff9a90b8 };
     const juce::Colour pink      { 0xffff4fb4 };
     const juce::Colour hotPink   { 0xffff2d9b };
     const juce::Colour cyan      { 0xff35e6f2 };
     const juce::Colour lime      { 0xffb4f53c };
     const juce::Colour yellow    { 0xffffe14a };
-    const juce::Colour lavender  { 0xff9687ea };
-    const juce::Colour panel     { 0xff1b1430 };
-    const juce::Colour panelDark { 0xff0e1120 };
-    const juce::Colour menuBg    { 0xff1c1233 };
+
+    inline juce::Colour text      { 0xfff7f3ff };
+    inline juce::Colour textDim   { 0xff9a90b8 };
+    inline juce::Colour shadow    { 0x8c000000 };
+    inline juce::Colour lavender  { 0xff9687ea };
+    inline juce::Colour menuBg    { 0xff1c1233 };
+    inline juce::Colour menuBg2   { 0xff140d26 };
+    inline juce::Colour display   { 0xff0e111e };   // waveform display background
+    inline juce::Colour gridLine  { 0x0fffffff };
+    inline juce::Colour waveOut   { 0xff9887ea };
+    inline juce::Colour waveIn    { 0xffff6ccb };
+    inline juce::Colour zoneTop   { 0xc0781a5c };
+    inline juce::Colour zoneBot   { 0xc0501040 };
+    inline juce::Colour pill      { 0xe0120a22 };
+    inline juce::Colour rowTop    { 0xff342a4c };
+    inline juce::Colour rowBot    { 0xff231c35 };
+    inline juce::Colour rowSelTop { 0xff4a3170 };
+    inline juce::Colour rowSelBot { 0xff2f1d4a };
+    inline juce::Colour rowBorder { 0xff5d4f80 };
+    inline juce::Colour rowHover  { 0xff8d7bb8 };
+    inline juce::Colour grip      { 0xebffffff };
+    inline juce::Colour boxOff    { 0xff1a1426 };
+    inline juce::Colour track     { 0xff15111f };
+    inline juce::Colour thumb     { 0xffb2a6d6 };
+    inline juce::Colour cardShade { 0x4a0c0618 };
+    inline juce::Colour panelTop  { 0xff23173f };   // manual / dialogs
+    inline juce::Colour panelBot  { 0xff100a1f };
 }
 
-class Skin
+class Skin : public juce::ChangeBroadcaster
 {
 public:
     static Skin& get();
 
-    const juce::Image& image() const     { return art; }
-    const juce::Image& offImage() const  { return off; }
+    const juce::Image& image() const     { return theme == Theme::light ? artLight : art; }
+    const juce::Image& offImage() const  { return theme == Theme::light ? offLight : off; }
+
+    /** Light / dark. Global preference: remembered for next time and shared by
+        every open Koolaid Man window. Listeners are told when it changes. */
+    Theme getTheme() const { return theme; }
+    void setTheme (Theme);
+    int version() const { return themeVersion; }   // bumps on every theme change
 
     /** Background fill for erasing baked-in text: each row is interpolated
         between the pixel just left and just right of the rectangle. */
@@ -48,7 +78,11 @@ public:
 
 private:
     Skin();
-    juce::Image art, off;
+    void applyColours();
+    juce::Image art, off, artLight, offLight;
+    Theme theme = Theme::dark;
+    int themeVersion = 0;
+    std::unique_ptr<juce::PropertiesFile> prefs;
     juce::Typeface::Ptr tfMedium, tfSemi, tfBold, tfHeavyItalic, tfWide, tfWideBold;
 };
 
@@ -57,6 +91,7 @@ class KoolLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     KoolLookAndFeel();
+    void applyTheme();
     juce::Font getPopupMenuFont() override;
     void drawPopupMenuBackground (juce::Graphics&, int width, int height) override;
     void drawPopupMenuItem (juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
@@ -71,7 +106,8 @@ public:
 };
 
 void drawShadowText (juce::Graphics&, const juce::String&, juce::Rectangle<float>, juce::Font,
-                     juce::Justification = juce::Justification::centred, juce::Colour = col::text);
+                     juce::Justification = juce::Justification::centred, juce::Colour = col::text,
+                     juce::Colour shadowColour = col::shadow);
 
 juce::PopupMenu::Options menuOptionsFor (juce::Component* target);
 
@@ -89,6 +125,7 @@ public:
     void setLit (bool);
     bool isLit() const { return lit; }
     void setLitRegion (juce::Rectangle<int> designRegion) { litRegion = designRegion; repaint(); }
+    void setShowHover (bool b) { showHover = b; }
     void setGlow (juce::Colour c) { glow = c; repaint(); }   // transparent = none
     void setFlash (bool b) { flash = b; repaint(); }
 
@@ -101,7 +138,7 @@ public:
 
 protected:
     float radius;
-    bool lit = true, flash = false, dragging = false;
+    bool lit = true, flash = false, dragging = false, showHover = true;
     juce::Rectangle<int> litRegion;   // empty = whole button
     juce::Colour glow = juce::Colours::transparentBlack;
 };
@@ -114,7 +151,9 @@ public:
                   juce::Justification just = juce::Justification::centred);
 
     void setText (const juce::String& t) { if (t != text) { text = t; repaint(); } }
-    void setTextColour (juce::Colour c) { colour = c; repaint(); }
+    void setTextColour (juce::Colour c) { colour = c; customColour = true; repaint(); }
+    /** Keep white-on-dark text whatever the theme (for boxes inside the coloured cards). */
+    void setFixedDarkStyle() { colour = juce::Colour (0xfff7f3ff); customColour = true; fixedDark = true; repaint(); }
     void setFont (juce::Font f) { font = f; repaint(); }
     const juce::String& getText() const { return text; }
 
@@ -135,10 +174,13 @@ public:
 private:
     juce::Rectangle<int> erase;    // local coords
     juce::Image patch;
+    juce::Rectangle<int> eraseDesign;
+    int patchVersion = -1;
     juce::String text;
     juce::Font font;
     juce::Justification justification;
-    juce::Colour colour = col::text;
+    juce::Colour colour;
+    bool customColour = false, fixedDark = false;
     float lastDragY = 0.0f;
     bool dragged = false;
 };

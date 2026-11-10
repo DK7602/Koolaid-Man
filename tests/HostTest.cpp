@@ -333,6 +333,22 @@ public:
                 pump (100);
             }
             check (true, "editor opened/closed 3 times");
+
+            // light/dark switching while the editor is open
+            std::unique_ptr<KoolaidEditor> ed (dynamic_cast<KoolaidEditor*> (p.createEditor()));
+            const auto before = skin::Skin::get().getTheme();
+            auto dark = (skin::Skin::get().setTheme (skin::Theme::dark), ed->snapshot (0.5f));
+            skin::Skin::get().setTheme (skin::Theme::light);
+            pump (50);
+            auto light = ed->snapshot (0.5f);
+            const auto px = [] (const juce::Image& im, int x, int y) { return im.getPixelAt (x, y).getPerceivedBrightness(); };
+            // a background panel point (moves-stack title bar) should flip from dark to light
+            check (px (dark, 300, 300) < 0.45f && px (light, 300, 300) > 0.6f,
+                   "theme switch repaints the panels (" + juce::String (px (dark, 300, 300), 2) + " -> " + juce::String (px (light, 300, 300), 2) + ")");
+            // the header art is the same in both themes
+            check (std::abs (px (dark, 120, 60) - px (light, 120, 60)) < 0.05f, "header art unchanged by the theme");
+            skin::Skin::get().setTheme (before);
+            ed.reset();
         }
         p.setPlayHead (nullptr);
     }

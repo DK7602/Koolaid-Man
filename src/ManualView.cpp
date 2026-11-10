@@ -121,7 +121,7 @@ public:
             }
             else if (i == hover)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.setColour (Skin::get().getTheme() == Theme::light ? juce::Colour (0x1aff2d9b) : juce::Colours::white.withAlpha (0.08f));
                 g.fillRoundedRectangle (r, 6.0f);
             }
             drawShadowText (g, owner.sections[(size_t) i].first.toUpperCase(), r.withTrimmedLeft (12.0f),
@@ -270,6 +270,13 @@ void ManualView::open()
     grabKeyboardFocus();
 }
 
+void ManualView::themeChanged()
+{
+    laidOutWidth = 0;
+    resized();
+    repaint();
+}
+
 void ManualView::close()
 {
     setVisible (false);
@@ -299,6 +306,10 @@ void ManualView::layoutBlocks (int width)
     if (width <= 0 || width == laidOutWidth) return;
     laidOutWidth = width;
     const auto& sk = Skin::get();
+    const bool light = sk.getTheme() == Theme::light;
+    const auto h1Col = light ? juce::Colour (0xffe0258f) : col::yellow;
+    const auto h2Col = light ? juce::Colour (0xff1d7fc4) : col::cyan;
+    const auto boldCol = light ? col::text : juce::Colours::white;
     sections.clear();
     float y = 4.0f;
     for (size_t i = 0; i < blocks.size(); ++i)
@@ -309,20 +320,20 @@ void ManualView::layoutBlocks (int width)
         switch (b.kind)
         {
             case Block::h1:
-                as = styled (b.text, sk.heavyItalic (36.0f), sk.heavyItalic (36.0f), col::yellow, col::yellow);
+                as = styled (b.text, sk.heavyItalic (36.0f), sk.heavyItalic (36.0f), h1Col, h1Col);
                 before = i == 0 ? 0.0f : 26.0f; after = 14.0f; b.indent = 0.0f;
                 break;
             case Block::h2:
-                as = styled (b.text, sk.heavyItalic (25.0f), sk.heavyItalic (25.0f), col::cyan, col::cyan);
+                as = styled (b.text, sk.heavyItalic (25.0f), sk.heavyItalic (25.0f), h2Col, h2Col);
                 before = 10.0f; after = 6.0f; b.indent = 0.0f;
                 break;
             case Block::para:
-                as = styled (b.text, sk.medium (20.0f), sk.bold (20.0f), col::text.withAlpha (0.92f), juce::Colours::white);
+                as = styled (b.text, sk.medium (20.0f), sk.bold (20.0f), col::text.withAlpha (0.92f), boldCol);
                 after = 14.0f; b.indent = 0.0f;
                 break;
             case Block::bullet:
             case Block::number:
-                as = styled (b.text, sk.medium (20.0f), sk.bold (20.0f), col::text.withAlpha (0.92f), juce::Colours::white);
+                as = styled (b.text, sk.medium (20.0f), sk.bold (20.0f), col::text.withAlpha (0.92f), boldCol);
                 after = 8.0f; b.indent = b.kind == Block::bullet ? 26.0f : 42.0f;
                 break;
         }
@@ -362,7 +373,7 @@ void ManualView::paint (juce::Graphics& g)
     auto r = getLocalBounds().toFloat().reduced (2.0f);
     g.setColour (juce::Colours::black.withAlpha (0.5f));
     g.fillRoundedRectangle (r.translated (0.0f, 5.0f), 18.0f);
-    juce::ColourGradient bg (juce::Colour (0xff23173f), 0, r.getY(), juce::Colour (0xff100a1f), 0, r.getBottom(), false);
+    juce::ColourGradient bg (col::panelTop, 0, r.getY(), col::panelBot, 0, r.getBottom(), false);
     g.setGradientFill (bg);
     g.fillRoundedRectangle (r, 18.0f);
 

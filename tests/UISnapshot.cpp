@@ -37,6 +37,7 @@ public:
             return;
         stopTimer();
         {
+            skin::Skin::get().setTheme (args.contains ("light") ? skin::Theme::light : skin::Theme::dark);
             KoolaidEditor editor (*proc);
             if (args.size() > 3 && args[3].startsWith ("manual"))
             {

@@ -7,6 +7,10 @@ DAW. It's exactly bar-aligned, so it lands right on the grid.
 
 ![Koolaid Man](docs/screenshot.png)
 
+**Light / dark:** click the Koolaid Man mascot (or gear menu > *Theme*) to switch to the light look:
+
+![Koolaid Man, light theme](docs/screenshot-light.png)
+
 Built for Cubase 14 Artist, and works in any DAW that loads VST3 (or AU on macOS).
 Personal-use project.
 
