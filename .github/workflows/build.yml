@@ -10,9 +10,9 @@ jobs:
     name: Windows (VST3 + Standalone)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build -A x64   # newest installed Visual Studio
       - name: Build
         run: cmake --build build --config Release --target KoolaidMan_VST3 KoolaidMan_Standalone --parallel
       - name: Package
@@ -31,7 +31,7 @@ jobs:
     name: macOS (VST3 + AU + Standalone, universal)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
       - name: Build
@@ -54,7 +54,7 @@ jobs:
     name: Linux build + tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
