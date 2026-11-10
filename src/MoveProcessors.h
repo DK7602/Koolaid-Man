@@ -18,7 +18,15 @@ struct MoveContext
     float refPeak = 0.5f;     // sample peak
     float refRms = 0.1f;      // RMS
     float lowRms = 0.05f;     // RMS below ~120 Hz
+
+    // Timeline: when >= 0 the move fills exactly this many beats (its slice) instead of
+    // working out its own length from its settings.
+    double lengthOverride = -1.0;
 };
+
+/** Where a move acts, in beats relative to the drop: its custom timeline region, or its
+    natural spot (e.g. a Tape Stop over the last 1/2 bar). zoneBeats = build zone length. */
+std::pair<double, double> moveRegion (const Move&, double zoneBeats, double beatsPerBar);
 
 /** Applies one move to the zone. 'main' is the processed music, 'fx' is the
     generated layer (drum fills, 808s, hats, reverb). Both are the zone's length. */

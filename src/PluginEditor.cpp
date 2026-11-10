@@ -34,6 +34,30 @@ void KoolaidEditor::Root::paint (juce::Graphics& g)
     }
 }
 
+void KoolaidEditor::CodeTab::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    juce::ColourGradient bg (juce::Colour (active ? 0xffff7ad0 : 0xff4a3d73), 0, r.getY(),
+                             juce::Colour (active ? 0xffd6248f : 0xff2a2246), 0, r.getBottom(), false);
+    g.setGradientFill (bg);
+    g.fillRoundedRectangle (r, 6.0f);
+    g.setColour (active ? juce::Colours::white.withAlpha (0.8f) : juce::Colour (0xffa595d8));
+    g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.2f);
+    if (isMouseOver() && ! active)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.1f));
+        g.fillRoundedRectangle (r, 6.0f);
+    }
+    // little lanes icon
+    for (int i = 0; i < 3; ++i)
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillRoundedRectangle (r.getX() + 12.0f + (float) (i % 2) * 5.0f, r.getY() + 7.0f + (float) i * 5.0f, 13.0f - (float) (i % 2) * 3.0f, 3.0f, 1.5f);
+    }
+    drawShadowText (g, text, r.withTrimmedLeft (22.0f), Skin::get().bold (18.0f), juce::Justification::centred,
+                    juce::Colours::white, juce::Colour (0x8c000000));
+}
+
 void KoolaidEditor::Bubble::show (juce::Component& near, const juce::String& t)
 {
     text = t;
@@ -65,7 +89,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &step1, &step2, &step3, &step4, &presetPrev, &presetNext, &presetName, &saveBtn, &saveAsBtn, &browseBtn,
-             &tempoBox, &syncBtn, &timeSigBox, &gearBtn, &tab1, &tab2, &tab3, &barsBox, &zoomIn, &zoomOut, &zoomFit,
+             &tempoBox, &syncBtn, &timeSigBox, &gearBtn, &tab1, &tab2, &tab3, &timelineTab, &barsBox, &zoomIn, &zoomOut, &zoomFit,
              &captureBtn, &waveform, &playBtn, &stopBtn, &loopBtn, &prevBtn, &nextBtn, &playbackBox, &lengthBox, &dropAtBox,
              &syncSessionBtn, &stack, &addMoveBtn, &duplicateBtn, &deleteBtn, &analyzeBtn, &rollBtn, &instantBtn,
              &previewBtn, &exportBtn, &exportRangeBox, &formatBox })
@@ -179,6 +203,8 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     tab1.onClick = [this] { if (proc.getSettings().activeTab == 0 && ! proc.hasMusic()) chooseFile (0); setTab (0); };
     tab2.onClick = [this] { if (proc.getSettings().activeTab == 1 && proc.getModel().drums == nullptr) chooseFile (1); setTab (1); };
     tab3.onClick = [this] { setTab (2); };
+    timelineTab.onClick = [this] { setTab (3); };
+    timelineTab.setTooltip ("TIMELINE: one lane per move - drag to choose exactly when each move happens (double-click a lane for auto)");
     tab1.setTooltip ("AUDIO 1: your two-track (the bars before the drop)");
     tab2.setTooltip ("AUDIO 2: optional drum / 808 stem used to find the snare, 808 and hats");
     tab3.setTooltip ("FX LAYER: the sounds the moves add (fills, 808s, hats, reverb)");
@@ -195,6 +221,14 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     captureBtn.setTooltip ("CAPTURE: arm, then press play in your DAW. Records this track's audio from the next bar line until you stop.");
 
     waveform.onZoneEdited = [this] { zoneEdited(); };
+    waveform.onLanesEdited = [this]
+    {
+        proc.modelChanged (true);
+        presetName.setText (presetDisplayName());
+        stack.refresh();
+        if (cards) cards->refresh();
+    };
+    waveform.onLaneSelected = [this] (int uid) { stack.select (uid); };
     waveform.onEmptyClicked = [this] { chooseFile (proc.getSettings().activeTab == 1 ? 1 : 0); };
 
     //------------------------------------------------------------------ transport
@@ -277,7 +311,11 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
 
     //------------------------------------------------------------------ stack
     stack.onStackEdited = [this] { edited(); };
-    stack.onSelectionChanged = [this] { if (cards) cards->followSelection(); };
+    stack.onSelectionChanged = [this]
+    {
+        if (cards) cards->followSelection();
+        waveform.setSelectedUid (stack.getSelectedUid());
+    };
     addMoveBtn.setTooltip ("Add a move to the stack");
     addMoveBtn.onClick = [this]
     {
@@ -493,6 +531,8 @@ void KoolaidEditor::refreshAll()
     tab1.setGlow (s.activeTab == 0 ? col::cyan : juce::Colours::transparentBlack);
     tab2.setGlow (s.activeTab == 1 ? col::lavender : juce::Colours::transparentBlack);
     tab3.setGlow (s.activeTab == 2 ? col::hotPink : juce::Colours::transparentBlack);
+    timelineTab.setActive (s.activeTab == 3);
+    waveform.setSelectedUid (stack.getSelectedUid());
 
 
     if (proc.hasMusic())

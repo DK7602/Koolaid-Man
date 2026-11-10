@@ -38,7 +38,17 @@ public:
         stopTimer();
         {
             skin::Skin::get().setTheme (args.contains ("light") ? skin::Theme::light : skin::Theme::dark);
+            if (args.contains ("timeline") && proc->getModel().moves.size() > 2)
+            {
+                auto& st = proc->getModel().moves[2];            // time the stutter to the 2nd bar of the build
+                st.customRegion = true;
+                st.regionStart = -12.0;
+                st.regionEnd = -8.0;
+                proc->modelChanged (true);
+            }
             KoolaidEditor editor (*proc);
+            if (args.contains ("timeline"))
+                editor.showTab (3);
             if (args.contains ("page2"))
                 editor.showCardPage (1);
             if (args.size() > 3 && args[3].startsWith ("manual"))

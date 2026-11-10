@@ -8,6 +8,7 @@
 #include "DrumDetector.h"
 #include "Presets.h"
 #include "Mastering.h"
+#include "MoveProcessors.h"
 
 using namespace km;
 
@@ -223,6 +224,47 @@ int main (int argc, char** argv)
             std::cout << "roll " << i << ": " << desc << "\n";
             writeWav (outDir, "roll " + juce::String (i), r->mix, sr);
         }
+    }
+
+    // ---- timeline: a timed move only touches its own slice of the build
+    {
+        const double spb = model.samplesPerBeat (sr);
+        DropModel m = model;                 // zone = beats 16..28 (drop at 28)
+        Move t = defaultMove (MoveType::TapeStop);
+        t.customRegion = true;
+        t.regionStart = -8.0;                // beats 20..24
+        t.regionEnd = -4.0;
+        m.moves = { t };
+        auto r = renderDrop (m, analysis, 1);
+        auto diffIn = [&] (double b0, double b1)
+        {
+            double d = 0.0;
+            for (int i = (int) (b0 * spb); i < (int) (b1 * spb); ++i)
+                d += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
+            return d / juce::jmax (1.0, (b1 - b0) * spb);
+        };
+        const double before = diffIn (16.0, 19.95), inside = diffIn (20.5, 23.5), after = diffIn (24.05, 27.5);
+        std::cout << "timeline: tape stop timed to beats 20-24 -> change before " << before << ", inside " << inside << ", after " << after << "\n";
+        if (before > 1.0e-6 || after > 1.0e-6 || inside < 1.0e-3) { std::cout << "FAIL: timed move leaked outside its slice\n"; ++failures; }
+
+        // natural regions: a Tape Stop's default spot is the last 1/2 bar
+        const auto nat = moveRegion (defaultMove (MoveType::TapeStop), 12.0, 4.0);
+        if (std::abs (nat.first + 2.0) > 1.0e-9 || std::abs (nat.second) > 1.0e-9) { std::cout << "FAIL: natural region\n"; ++failures; }
+
+        // a timed Impact lands where it was put (2 beats after the drop)
+        Move im = defaultMove (MoveType::Impact);
+        im.customRegion = true;
+        im.regionStart = 2.0;
+        im.regionEnd = 6.0;
+        m.moves = { im };
+        r = renderDrop (m, analysis, 1);
+        const double early = diffIn (28.1, 29.9), late = diffIn (30.05, 31.5);
+        std::cout << "timeline: impact timed to +2 beats -> change before it " << early << ", after it " << late << "\n";
+        if (early > 1.0e-6 || late < 1.0e-3) { std::cout << "FAIL: timed impact\n"; ++failures; }
+
+        // round trip of the timing through presets / project state
+        auto back = Move::fromTree (t.toTree());
+        if (! (back == t)) { std::cout << "FAIL: timeline region round trip\n"; ++failures; }
     }
 
     // ---- studio-grade pitch: a pure 440 Hz tone shifted +12 st must come out as a clean 880 Hz

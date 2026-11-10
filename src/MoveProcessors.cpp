@@ -32,6 +32,9 @@ namespace
 
     int toSamples (double beats, const MoveContext& c) { return (int) std::llround (beats * c.samplesPerBeat); }
 
+    /** A move's own length (from its settings), unless the timeline gave it a slice to fill. */
+    double regionLen (double natural, const MoveContext& c) { return c.lengthOverride >= 0.0 ? c.lengthOverride : natural; }
+
     /** Linear crossfade from 'before' to 'after' in [start, start+len). */
     void crossfadeInto (Buffer& target, const Buffer& before, int start, int len)
     {
@@ -338,7 +341,7 @@ namespace
     void doReverse (const Move& m, const MoveContext& c, Buffer& b, bool isFx)
     {
         const int n = b.getNumSamples();
-        int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (m.mode == 2) L = n;
         if (L < 64) return;
         const int start = n - L;
@@ -467,7 +470,7 @@ namespace
     {
         const int n = b.getNumSamples();
         const int slice = juce::jmax (32, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
-        const int span = juce::jmin (n, toSamples (stutterSpanBeats (m.knob, c.beatsPerBar), c));
+        const int span = juce::jmin (n, toSamples (regionLen (stutterSpanBeats (m.knob, c.beatsPerBar), c), c));
         if (span < slice) return;
         const int start = n - span;
         const Buffer src (b);
@@ -510,7 +513,7 @@ namespace
     void doTapeStop (const Move& m, const MoveContext& c, Buffer& b)
     {
         const int n = b.getNumSamples();
-        const int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (L < 128) return;
         const int start = n - L;
         const double p = juce::jmap ((double) m.knob, 0.55, 2.6);
@@ -672,7 +675,7 @@ namespace
         const double bpb = c.beatsPerBar;
         if (m.mode == 0) // fill: 1/4 -> 1/8 -> 1/16 -> 1/32 across the last (up to) 4 bars
         {
-            const double regionBeats = juce::jmin (n / c.samplesPerBeat, 4.0 * bpb);
+            const double regionBeats = juce::jmin (n / c.samplesPerBeat, regionLen (4.0 * bpb, c));
             const double startBeat = n / c.samplesPerBeat - regionBeats;
             const double seg = regionBeats / 4.0;
             const double base = regionBeats >= 2.0 * bpb ? 1.0 : (regionBeats >= bpb ? 0.5 : 0.25);
@@ -691,7 +694,7 @@ namespace
         }
         else // roll: steady 1/16s over the last 2 bars, crescendo, last beat 1/32
         {
-            const double regionBeats = juce::jmin (n / c.samplesPerBeat, 2.0 * bpb);
+            const double regionBeats = juce::jmin (n / c.samplesPerBeat, regionLen (2.0 * bpb, c));
             const double endBeat = n / c.samplesPerBeat;
             const double startBeat = endBeat - regionBeats;
             for (double bt = startBeat; bt < endBeat - 1.0e-6;)
@@ -720,7 +723,7 @@ namespace
         while (f0 < 32.0) f0 *= 2.0;
 
         const double bpb = c.beatsPerBar;
-        const double lenBeats = m.mode == 0 ? bpb * 0.5 : bpb;
+        const double lenBeats = regionLen (m.mode == 0 ? bpb * 0.5 : bpb, c);
         const int L = juce::jmin (n, (int) (lenBeats * c.samplesPerBeat));
         const int start = n - L;
         const float level = 0.5f + 0.5f * m.knob;
@@ -768,7 +771,7 @@ namespace
         Buffer fb;
         const Buffer& hit = hatHit (c, fb, m.mode == 2);
         const double totalBeats = n / c.samplesPerBeat;
-        const double regionBeats = juce::jmin (totalBeats, 4.0 * c.beatsPerBar);
+        const double regionBeats = juce::jmin (totalBeats, regionLen (4.0 * c.beatsPerBar, c));
         const double startBeat = totalBeats - regionBeats;
 
         int idx = 0;
@@ -933,7 +936,7 @@ namespace
     void doRiser (const Move& m, const MoveContext& c, Buffer& fx)
     {
         const int n = fx.getNumSamples();
-        const int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (L < 256) return;
         const double sr = c.sampleRate;
         Buffer layer (2, L);
@@ -989,7 +992,7 @@ namespace
     void doRevCrash (const Move& m, const MoveContext& c, Buffer& fx)
     {
         const int n = fx.getNumSamples();
-        int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (m.mode == 1) L = juce::jmin (L, toSamples (2.0, c));
         if (L < 256) return;
         const double decay = (L / c.sampleRate) * (m.mode == 2 ? 0.55 : 0.35);
@@ -1028,7 +1031,7 @@ namespace
     void doGap (const Move& m, const MoveContext& c, Buffer& main)
     {
         const int n = main.getNumSamples();
-        const int L = juce::jmin (n, toSamples (divisionToBeats (m.division, c.beatsPerBar), c));
+        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (L < 64) return;
         const int start = n - L;
         const int fade = juce::jmin (L / 3, (int) (0.006 * c.sampleRate) + 1);
@@ -1071,7 +1074,8 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
 {
     if (! m.enabled || ! playsAfterDrop (m.type)) return;
     const double sr = c.sampleRate;
-    const int T = juce::jmin (post.getNumSamples(), (int) std::llround (afterDropTailBeats (m, c.beatsPerBar) * c.samplesPerBeat));
+    const double tailBeats = c.lengthOverride >= 0.0 ? c.lengthOverride : afterDropTailBeats (m, c.beatsPerBar);
+    const int T = juce::jmin (post.getNumSamples(), (int) std::llround (tailBeats * c.samplesPerBeat));
     if (T < 256) return;
     const float level = 0.45f + 0.65f * m.knob;
     const int firstHalfSec = juce::jmin (T, (int) (0.5 * sr));
@@ -1163,6 +1167,29 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
     const int rel = juce::jmin (T / 4, (int) (0.08 * sr));
     hit.applyGainRamp (T - rel, rel, 1.0f, 0.0f);
     addMatched (post, hit, 0, 0, firstHalfSec, c.refRms * 1.4f * level);
+}
+
+std::pair<double, double> moveRegion (const Move& m, double Z, double bpb)
+{
+    if (m.customRegion)
+        return { m.regionStart, m.regionEnd };
+    const double L = divisionToBeats (m.division, bpb);
+    const auto last = [Z] (double len) { return std::make_pair (-juce::jmin (Z, len), 0.0); };
+    switch (m.type)
+    {
+        case MoveType::Reverse:   return m.mode == 2 ? last (Z) : last (L);
+        case MoveType::Stutter:   return last (stutterSpanBeats (m.knob, bpb));
+        case MoveType::TapeStop:
+        case MoveType::Riser:
+        case MoveType::Gap:       return last (L);
+        case MoveType::RevCrash:  return last (m.mode == 1 ? juce::jmin (L, 2.0) : L);
+        case MoveType::DrumMoves: return m.mode == 0 ? last (4.0 * bpb) : (m.mode == 2 ? last (2.0 * bpb) : last (Z));
+        case MoveType::Bass808:   return last (m.mode == 0 ? bpb * 0.5 : bpb);
+        case MoveType::Hats:      return last (4.0 * bpb);
+        case MoveType::Impact:
+        case MoveType::Boom:      return { 0.0, afterDropTailBeats (m, bpb) };
+        default:                  return last (Z);   // chops, pitch, filter, atmos, pump: the whole build
+    }
 }
 
 void applyMove (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)

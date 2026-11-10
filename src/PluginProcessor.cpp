@@ -760,7 +760,7 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     settings.exportRange = (ExportRange) juce::jlimit (0, 3, (int) t.getProperty ("exportRange", 0));
     settings.exportFormat = (ExportFormat) juce::jlimit (0, 3, (int) t.getProperty ("exportFormat", 1));
     settings.uiScale = juce::jlimit (0.4f, 1.5f, (float) t.getProperty ("uiScale", settings.uiScale));
-    settings.activeTab = juce::jlimit (0, 2, (int) t.getProperty ("activeTab", 0));
+    settings.activeTab = juce::jlimit (0, 3, (int) t.getProperty ("activeTab", 0));
     settings.snap = juce::jlimit (0, 2, (int) t.getProperty ("snap", 1));
     *outputParam = (float) t.getProperty ("previewLevel", 0.0f);
     *syncParam = (bool) t.getProperty ("syncPreview", true);

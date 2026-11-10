@@ -260,6 +260,11 @@ juce::ValueTree Move::toTree() const
     t.setProperty ("knob2", knob2, nullptr);
     t.setProperty ("mode", mode, nullptr);
     t.setProperty ("seed", (int) seed, nullptr);
+    if (customRegion)
+    {
+        t.setProperty ("regionStart", regionStart, nullptr);
+        t.setProperty ("regionEnd", regionEnd, nullptr);
+    }
     return t;
 }
 
@@ -273,13 +278,21 @@ Move Move::fromTree (const juce::ValueTree& t)
     m.knob2     = juce::jlimit (0.0f, 1.0f, (float) t.getProperty ("knob2", m.knob2));
     m.mode      = juce::jlimit (0, juce::jmax (0, modeNames (m.type).size() - 1), (int) t.getProperty ("mode", m.mode));
     m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
+    m.customRegion = t.hasProperty ("regionStart") && t.hasProperty ("regionEnd");
+    if (m.customRegion)
+    {
+        m.regionStart = t.getProperty ("regionStart");
+        m.regionEnd = t.getProperty ("regionEnd");
+        if (m.regionEnd - m.regionStart < 0.0625) m.customRegion = false;
+    }
     return m;
 }
 
 bool Move::operator== (const Move& o) const
 {
     return type == o.type && enabled == o.enabled && division == o.division && semitones == o.semitones
-        && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed;
+        && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed
+        && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd));
 }
 
 juce::StringArray playbackModeNames()   { return { "PRE-DROP", "FULL CLIP", "INTO THE DROP", "ORIGINAL (A/B)" }; }

@@ -64,6 +64,11 @@ Every push builds the plug-in on GitHub Actions:
 | **Impact** | Level · Tail | Hit + Crash, Hit Only, Crash + Downlifter (plays on the drop) |
 | **Sub Boom** | Level · Length | Deep, Punchy, Long Dive (plays on the drop) |
 
+**Timeline:** the TIMELINE tab shows one lane per move; drag lanes to choose exactly when each
+move happens (double-click for auto).
+
+![Timeline](docs/screenshot-timeline.png)
+
 **Detection** finds the snare, 808/kick and hi-hats in the two-track (or in an optional drum/808
 stem on the **AUDIO 2** tab) and uses those exact hits for the drum moves. Anything it can't find
 falls back to a built-in sound. The **FX LAYER** tab shows just what the moves add.

@@ -65,6 +65,12 @@ struct Move
     juce::uint32 seed = 1;
     int uid = 0;
 
+    // Timeline: when customRegion is set, the move only works inside [regionStart, regionEnd),
+    // in beats relative to the drop (so negative = before the drop). Otherwise it uses its
+    // natural spot (see moveRegion()).
+    bool customRegion = false;
+    double regionStart = -4.0, regionEnd = 0.0;
+
     juce::String stackLabel() const;
     juce::ValueTree toTree() const;
     static Move fromTree (const juce::ValueTree&);

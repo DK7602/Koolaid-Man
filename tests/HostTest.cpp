@@ -358,6 +358,10 @@ public:
             auto img = ed->snapshot (0.5f);
             ed->showCardPage (0);
             check (img.isValid(), "BUILD & DROP page renders");
+            ed->showTab (3);
+            img = ed->snapshot (0.5f);
+            ed->showTab (0);
+            check (img.isValid(), "TIMELINE view renders");
         }
 
         // ---- editor lifecycle on the real processor

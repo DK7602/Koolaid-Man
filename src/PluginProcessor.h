@@ -26,7 +26,7 @@ struct SessionSettings
     km::ExportRange exportRange = km::ExportRange::FullClip;
     km::ExportFormat exportFormat = km::ExportFormat::Wav24;
     float uiScale = 0.72f;
-    int activeTab = 0;             // 0 music, 1 drums, 2 fx layer
+    int activeTab = 0;             // 0 music, 1 drums, 2 fx layer, 3 timeline
     int snap = 1;                  // 0 bar, 1 beat, 2 sixteenth
 };
 

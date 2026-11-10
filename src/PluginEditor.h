@@ -29,6 +29,7 @@ public:
     void openManual();
     void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
     void showCardPage (int p) { if (cards) cards->setPage (p); }
+    void showTab (int t) { setTab (t); }
 
 private:
     /** Paints the artwork; hosts every control in design coordinates. */
@@ -40,6 +41,21 @@ private:
         juce::Image scaled;
         float scaledFor = 0.0f;
         int scaledVersion = -1;
+    };
+
+    /** A tab drawn in the style of the art's tabs (for TIMELINE, which the mockup doesn't have). */
+    class CodeTab : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        CodeTab (juce::Rectangle<int> b, juce::String t) : text (std::move (t)) { setBounds (b); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        std::function<void()> onClick;
+        void setActive (bool a) { if (a != active) { active = a; repaint(); } }
+        void paint (juce::Graphics&) override;
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override  { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
+        juce::String text;
+        bool active = false;
     };
 
     class Bubble : public juce::Component
@@ -101,6 +117,7 @@ private:
 
     // waveform panel
     Btn tab1 { { 30, 322, 186, 27 } }, tab2 { { 222, 322, 219, 27 } }, tab3 { { 451, 322, 135, 27 } };
+    CodeTab timelineTab { { 594, 322, 150, 27 }, "TIMELINE" };
     Box barsBox { { 930, 320, 268, 28 }, { 940, 322, 252, 24 }, 20.0f };
     Btn zoomIn { { 1220, 321, 38, 28 } }, zoomOut { { 1269, 321, 36, 28 } }, zoomFit { { 1317, 321, 41, 28 } }, captureBtn { { 1370, 321, 44, 28 } };
     WaveformView waveform { proc };

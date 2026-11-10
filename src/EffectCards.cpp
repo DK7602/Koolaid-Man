@@ -809,7 +809,11 @@ void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
         if (r == 0) return;
         auto& mv = target (t);
         if (r >= 1000) mv.semitones = r - 1100;
-        else mv.division = r - 1;
+        else
+        {
+            mv.division = r - 1;
+            mv.customRegion = false;   // a new length means "use my natural spot" again
+        }
         if (onEdited) onEdited();
         if (onStackChanged) onStackChanged();
         refresh();

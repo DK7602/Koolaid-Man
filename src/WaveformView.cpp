@@ -1,4 +1,5 @@
 #include "WaveformView.h"
+#include "MoveProcessors.h"
 
 using namespace skin;
 
@@ -97,6 +98,24 @@ void WaveformView::zoomBy (double factor)
     const double centre = viewStart + viewLen * 0.5;
     viewLen = juce::jlimit (juce::jmin (total, 2.0), total, viewLen * factor);
     viewStart = juce::jlimit (0.0, total - viewLen, centre - viewLen * 0.5);
+    fitted = std::abs (viewLen - total) < 1.0e-6;
+    repaint();
+}
+
+void WaveformView::zoomToZone()
+{
+    const auto& m = proc.getModel();
+    const double total = juce::jmax (1.0, clipBeats());
+    const double bpb = m.beatsPerBar();
+    double after = 0.5 * bpb;
+    for (auto& mv : m.moves)
+        if (km::playsAfterDrop (mv.type))
+            after = juce::jmax (after, km::moveRegion (mv, m.zoneEnd - m.zoneStart, bpb).second + 0.25 * bpb);
+    const double a = juce::jmax (0.0, m.zoneStart - 0.5 * bpb);
+    const double b = juce::jmin (total, m.zoneEnd + after);
+    if (b - a < 1.0) return;
+    viewStart = a;
+    viewLen = b - a;
     fitted = std::abs (viewLen - total) < 1.0e-6;
     repaint();
 }
@@ -277,13 +296,17 @@ void WaveformView::paint (juce::Graphics& g)
         g.fillRect (zone);
     }
 
-    // waveform
+    // waveform (a slim strip above the lanes on the timeline)
+    const float wc = isTimeline() ? 54.0f : waveCentre;
+    const float wh = isTimeline() ? 14.0f : waveHalf;
     if (tab == 1)
-        drawWave (g, peaks, juce::Colour (0xffa6ec5a), juce::Colour (0xffc8ff7a), waveCentre, waveHalf);
+        drawWave (g, peaks, juce::Colour (0xffa6ec5a), juce::Colour (0xffc8ff7a), wc, wh);
     else if (tab == 2)
-        drawWave (g, peaks, juce::Colour (0xff38d8f0), juce::Colour (0xff6ef6ff), waveCentre, waveHalf);
+        drawWave (g, peaks, juce::Colour (0xff38d8f0), juce::Colour (0xff6ef6ff), wc, wh);
     else
-        drawWave (g, peaks, col::waveOut, col::waveIn, waveCentre, waveHalf);
+        drawWave (g, peaks, col::waveOut, col::waveIn, wc, wh);
+    if (isTimeline())
+        drawLanes (g);
 
     // detected drum hits (drum tab, or music tab when analysing the mix)
     if (auto a = proc.getAnalysis(); a != nullptr && total > 0 && (tab == 1 || (tab == 0 && ! a->fromDrumStem)))
@@ -380,6 +403,16 @@ void WaveformView::paint (juce::Graphics& g)
 //==============================================================================
 void WaveformView::mouseMove (const juce::MouseEvent& e)
 {
+    if (isTimeline() && laneArea().contains (e.position))
+    {
+        const auto lh = laneHitTest (e.position);
+        if (lh.index != hoverLane) { hoverLane = lh.index; repaint(); }
+        setMouseCursor (lh.part == LanePart::start || lh.part == LanePart::end ? juce::MouseCursor::LeftRightResizeCursor
+                        : (lh.part == LanePart::body ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor));
+        if (hover != Hit::none) { hover = Hit::none; repaint(); }
+        return;
+    }
+    if (hoverLane >= 0) { hoverLane = -1; repaint(); }
     const auto h = hitTest (e.position);
     if (h != hover) { hover = h; repaint(); }
     switch (h)
@@ -400,6 +433,23 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
         return;
     }
     auto& m = proc.getModel();
+    laneDrag = {};
+    if (isTimeline() && laneArea().contains (e.position))
+    {
+        dragMode = Hit::none;
+        laneDrag = laneHitTest (e.position);
+        laneDragged = false;
+        if (laneDrag.index >= 0)
+        {
+            const auto& mv = m.moves[(size_t) laneDrag.index];
+            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+            laneDragStartBeat = xToBeat (e.position.x);
+            laneDragStart = reg.first;
+            laneDragEnd = reg.second;
+            if (onLaneSelected) onLaneSelected (mv.uid);
+        }
+        return;
+    }
     dragMode = hitTest (e.position);
     dragStartBeat = xToBeat (e.position.x);
     dragZoneStart = m.zoneStart;
@@ -419,6 +469,35 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
     const double total = clipBeats();
     const double beat = xToBeat (e.position.x);
     const double minLen = 0.25;
+
+    if (laneDrag.index >= 0 && laneDrag.index < (int) m.moves.size() && laneDrag.part != LanePart::none)
+    {
+        if (! laneDragged && e.getDistanceFromDragStart() < 3) return;
+        laneDragged = true;
+        auto& mv = m.moves[(size_t) laneDrag.index];
+        const bool after = km::playsAfterDrop (mv.type);
+        const double Z = m.zoneEnd - m.zoneStart;
+        const double lo = after ? 0.0 : -Z, hi = after ? 8.0 * m.beatsPerBar() : 0.0;
+        const double drop = m.zoneEnd;
+        double s = laneDragStart, en = laneDragEnd;
+        const double delta = beat - laneDragStartBeat;
+        if (laneDrag.part == LanePart::body)
+        {
+            const double len = en - s;
+            s = juce::jlimit (lo, hi - len, snap (drop + laneDragStart + delta, e.mods) - drop);
+            en = s + len;
+        }
+        else if (laneDrag.part == LanePart::start)
+            s = juce::jlimit (lo, en - minLen, snap (drop + laneDragStart + delta, e.mods) - drop);
+        else
+            en = juce::jlimit (s + minLen, hi, snap (drop + laneDragEnd + delta, e.mods) - drop);
+        mv.customRegion = true;
+        mv.regionStart = s;
+        mv.regionEnd = en;
+        if (onLanesEdited) onLanesEdited();
+        repaint();
+        return;
+    }
     switch (dragMode)
     {
         case Hit::leftEdge:
@@ -450,12 +529,21 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
 
 void WaveformView::mouseUp (const juce::MouseEvent&)
 {
+    laneDrag = {};
     dragMode = Hit::none;
     repaint();
 }
 
 void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (isTimeline() && laneArea().contains (e.position) && ! (e.mods.isCommandDown() || e.mods.isCtrlDown()))
+    {
+        const int n = (int) proc.getModel().moves.size();
+        const int visible = (int) (laneArea().getHeight() / laneHeight());
+        const int ns = juce::jlimit (0, juce::jmax (0, n - visible), laneScroll + (w.deltaY < 0 ? 1 : -1));
+        if (ns != laneScroll) { laneScroll = ns; repaint(); }
+        return;
+    }
     if (e.mods.isCommandDown() || e.mods.isCtrlDown())
     {
         zoomBy (w.deltaY > 0 ? 0.8 : 1.25);
@@ -466,4 +554,155 @@ void WaveformView::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseW
     const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
     viewStart = juce::jlimit (0.0, total - viewLen, viewStart - d * viewLen * 0.5);
     repaint();
+}
+
+//==============================================================================
+// Timeline lanes
+//==============================================================================
+juce::Colour WaveformView::moveColour (km::MoveType t)
+{
+    using T = km::MoveType;
+    switch (t)
+    {
+        case T::Reverse:   return juce::Colour (0xffff8a3d);
+        case T::Chops:     return juce::Colour (0xff22c7b8);
+        case T::Stutter:   return juce::Colour (0xffe24bd2);
+        case T::Pitch:     return juce::Colour (0xffe8c22c);
+        case T::TapeStop:  return juce::Colour (0xff3d7dff);
+        case T::Filter:    return juce::Colour (0xff7fd13b);
+        case T::DrumMoves: return juce::Colour (0xffd8379b);
+        case T::Bass808:   return juce::Colour (0xffff4b4b);
+        case T::Hats:      return juce::Colour (0xff3fc2f0);
+        case T::Atmos:     return juce::Colour (0xffa36bff);
+        case T::Riser:     return juce::Colour (0xff35e09a);
+        case T::RevCrash:  return juce::Colour (0xffffc23d);
+        case T::Pump:      return juce::Colour (0xffff4fc4);
+        case T::Gap:       return juce::Colour (0xff6c6cff);
+        case T::Impact:    return juce::Colour (0xffff6a2b);
+        case T::Boom:      return juce::Colour (0xffc05cff);
+        default: break;
+    }
+    return col::lavender;
+}
+
+juce::Rectangle<float> WaveformView::laneArea() const
+{
+    return { contentArea().getX() - 20.0f, 72.0f, contentArea().getWidth() + 40.0f, (float) getHeight() - 77.0f };
+}
+
+float WaveformView::laneHeight() const
+{
+    const int n = juce::jmax (1, (int) proc.getModel().moves.size());
+    return juce::jlimit (12.0f, 22.0f, laneArea().getHeight() / (float) n);
+}
+
+juce::Rectangle<float> WaveformView::laneBar (int index) const
+{
+    const auto& m = proc.getModel();
+    const auto& mv = m.moves[(size_t) index];
+    const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+    const float lh = laneHeight();
+    const float y = laneArea().getY() + (float) (index - laneScroll) * lh;
+    const float x0 = beatToX (m.zoneEnd + reg.first), x1 = beatToX (m.zoneEnd + reg.second);
+    return { x0, y + 1.0f, juce::jmax (4.0f, x1 - x0), lh - 2.0f };
+}
+
+WaveformView::LaneHit WaveformView::laneHitTest (juce::Point<float> p) const
+{
+    const auto& moves = proc.getModel().moves;
+    const float lh = laneHeight();
+    const int index = laneScroll + (int) std::floor ((p.y - laneArea().getY()) / lh);
+    if (index < 0 || index >= (int) moves.size()) return {};
+    const auto bar = laneBar (index);
+    LaneHit h;
+    h.index = index;
+    if (std::abs (p.x - bar.getX()) < 6.0f) h.part = LanePart::start;
+    else if (std::abs (p.x - bar.getRight()) < 6.0f) h.part = LanePart::end;
+    else if (bar.contains (p)) h.part = LanePart::body;
+    return h;
+}
+
+void WaveformView::drawLanes (juce::Graphics& g)
+{
+    const auto& m = proc.getModel();
+    const auto area = laneArea();
+    g.saveState();
+    g.reduceClipRegion (area.toNearestInt());
+    // divider between the waveform strip and the lanes
+    g.setColour (col::gridLine.withMultipliedAlpha (3.0f));
+    g.fillRect (area.getX(), area.getY() - 3.0f, area.getWidth(), 1.0f);
+
+    if (m.moves.empty())
+        drawShadowText (g, "No moves yet - add some, then drag them here to choose when they happen", area,
+                        Skin::get().semibold (17.0f), juce::Justification::centred, col::textDim);
+
+    const float lh = laneHeight();
+    const auto font = Skin::get().bold (juce::jmin (16.0f, lh - 3.0f));
+    for (int i = laneScroll; i < (int) m.moves.size(); ++i)
+    {
+        const auto bar = laneBar (i);
+        if (bar.getY() > area.getBottom()) break;
+        const auto& mv = m.moves[(size_t) i];
+        auto c = moveColour (mv.type);
+        if (! mv.enabled) c = c.withSaturation (0.15f).withAlpha (0.55f);
+        const bool sel = mv.uid == selectedUid, hot = i == hoverLane;
+
+        if (mv.customRegion)
+        {
+            juce::ColourGradient grad (c.brighter (0.25f), 0, bar.getY(), c.darker (0.25f), 0, bar.getBottom(), false);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (bar, 4.0f);
+            g.setColour (c.brighter (0.6f));
+            g.drawRoundedRectangle (bar.reduced (0.5f), 4.0f, 1.0f);
+            // grab handles
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.fillRoundedRectangle (bar.getX() + 2.0f, bar.getY() + 3.0f, 2.5f, bar.getHeight() - 6.0f, 1.0f);
+            g.fillRoundedRectangle (bar.getRight() - 4.5f, bar.getY() + 3.0f, 2.5f, bar.getHeight() - 6.0f, 1.0f);
+        }
+        else
+        {
+            // auto: translucent with a dashed outline
+            g.setColour (c.withMultipliedAlpha (0.28f));
+            g.fillRoundedRectangle (bar, 4.0f);
+            juce::Path outline, dashed;
+            outline.addRoundedRectangle (bar.reduced (0.5f), 4.0f);
+            const float dashes[] = { 4.0f, 3.0f };
+            juce::PathStrokeType (1.2f).createDashedStroke (dashed, outline, dashes, 2);
+            g.setColour (c);
+            g.fillPath (dashed);
+        }
+        if (sel || hot)
+        {
+            g.setColour (sel ? juce::Colours::white : juce::Colours::white.withAlpha (0.5f));
+            g.drawRoundedRectangle (bar.expanded (1.0f), 5.0f, sel ? 1.8f : 1.0f);
+        }
+        juce::String label = juce::String (km::typeName (mv.type));
+        if (! mv.customRegion) label << "  (auto)";
+        const auto textCol = mv.customRegion ? juce::Colours::white : (Skin::get().getTheme() == skin::Theme::light ? col::text : juce::Colours::white);
+        auto tr = bar.reduced (7.0f, 0.0f);
+        if (juce::GlyphArrangement::getStringWidth (font, label) > tr.getWidth())
+            tr = tr.withWidth (400.0f);   // spill past short bars so the name stays readable
+        drawShadowText (g, label, tr, font, juce::Justification::centredLeft, textCol,
+                        mv.customRegion ? juce::Colour (0x8c000000) : col::shadow);
+    }
+    // more lanes than fit: hint at scrolling
+    const int visible = (int) (area.getHeight() / lh);
+    if ((int) m.moves.size() > visible)
+        drawShadowText (g, juce::String (laneScroll + 1) + "-" + juce::String (juce::jmin ((int) m.moves.size(), laneScroll + visible))
+                        + " of " + juce::String (m.moves.size()) + "  (scroll)",
+                        area.withTrimmedRight (6.0f), Skin::get().semibold (14.0f), juce::Justification::bottomRight, col::textDim);
+    g.restoreState();
+}
+
+void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (! isTimeline() || ! laneArea().contains (e.position)) return;
+    const auto h = laneHitTest (e.position);
+    auto& m = proc.getModel();
+    if (h.index >= 0 && h.index < (int) m.moves.size() && m.moves[(size_t) h.index].customRegion)
+    {
+        m.moves[(size_t) h.index].customRegion = false;   // back to its natural spot
+        if (onLanesEdited) onLanesEdited();
+        repaint();
+    }
 }

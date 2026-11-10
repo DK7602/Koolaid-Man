@@ -78,6 +78,16 @@ Everything outside the zone stays exactly as it was. Some moves (like **Reverse 
 
 You can use the same move more than once. For example, two filters, or a short reverse plus a long one.
 
+# The Timeline
+
+Click the **TIMELINE** tab above the waveform to see **one colored lane per move**, in the move's card color. The view zooms to the build zone. Each lane shows *when* that move happens.
+
+- A **dashed, see-through lane** is on **auto**: the move uses its natural spot (a Tape Stop over the last 1/2 bar, a filter sweep over the whole build, and so on).
+- **Drag a lane** to move it, or **drag its left or right edge** to change where it starts and ends. It turns solid, and the move now works exactly inside that range. For example, stutter only the second bar, put the riser on the last bar, or land the Impact a beat after the drop. Lanes snap to the grid; hold **Shift** for free movement.
+- **Double-click a lane** (or choose **Reset Timing (Auto)** from the move's drop-down in the stack) to put it back on auto. Picking a new length on the move's card also puts it back on auto.
+- Timed moves show a **TIMED** tag in the stack. Clicking a lane selects that move, so its card is ready to tweak.
+- Timing is stored relative to the drop, so moving the drop takes your timed moves with it. It's saved in presets and in your project.
+
 # Drop Moves & Effects (the Cards)
 
 Each card controls one kind of move. The **green power button** turns that move on or off; if the move isn't in the stack yet, it gets added. Dimmed cards are off. **Click a card's title** for its variations and to add or remove it. Knobs: drag up and down (hold **Shift** for fine control), double-click to reset, or use the mouse wheel. Click a value box (like **1/2** or **–12**) for a list, or scroll over it.

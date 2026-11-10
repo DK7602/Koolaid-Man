@@ -31,7 +31,10 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     int tail = 0;
     for (auto& m : model.moves)
         if (m.enabled && playsAfterDrop (m.type))
-            tail = juce::jmax (tail, (int) std::llround (afterDropTailBeats (m, model.beatsPerBar()) * spb));
+        {
+            const double endBeats = m.customRegion ? juce::jmax (0.25, m.regionEnd) : afterDropTailBeats (m, model.beatsPerBar());
+            tail = juce::jmax (tail, (int) std::llround (endBeats * spb));
+        }
     int total = clipLen;
     if (res->zoneEnd + tail > clipLen)
     {
@@ -86,7 +89,54 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     const juce::AudioBuffer<float> original (main);
 
     for (auto& m : model.moves)
-        applyMove (m, ctx, main, fx);
+    {
+        if (! m.enabled || playsAfterDrop (m.type))
+            continue;
+        if (! m.customRegion)
+        {
+            applyMove (m, ctx, main, fx);
+            continue;
+        }
+        // Timeline: run the move on its own slice of the build, then crossfade it in and out
+        const double zoneBeats = n / spb;
+        const int s0 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionStart) * spb);
+        const int s1 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionEnd) * spb);
+        const int len = s1 - s0;
+        if (len < 64)
+            continue;
+        juce::AudioBuffer<float> sm (2, len), sf (2, len);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            sm.copyFrom (ch, 0, main, ch, s0, len);
+            sf.copyFrom (ch, 0, fx, ch, s0, len);
+        }
+        const juce::AudioBuffer<float> beforeMain (sm), beforeFx (sf);
+        MoveContext sc = ctx;
+        sc.zoneStartInClip = ctx.zoneStartInClip + s0;
+        sc.lengthOverride = len / spb;
+        applyMove (m, sc, sm, sf);
+        const int xf = juce::jmin (len / 4, (int) (0.005 * sr) + 1);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            for (int i = 0; i < xf; ++i)
+            {
+                const float a = (float) i / xf;
+                if (s0 > 0)
+                {
+                    sm.setSample (ch, i, beforeMain.getSample (ch, i) * (1.0f - a) + sm.getSample (ch, i) * a);
+                    sf.setSample (ch, i, beforeFx.getSample (ch, i) * (1.0f - a) + sf.getSample (ch, i) * a);
+                }
+                if (s1 < n)
+                {
+                    const int k = len - 1 - i;
+                    sm.setSample (ch, k, beforeMain.getSample (ch, k) * (1.0f - a) + sm.getSample (ch, k) * a);
+                    sf.setSample (ch, k, beforeFx.getSample (ch, k) * (1.0f - a) + sf.getSample (ch, k) * a);
+                }
+            }
+            main.copyFrom (ch, s0, sm, ch, 0, len);
+            fx.copyFrom (ch, s0, sf, ch, 0, len);
+        }
+    }
 
     // Loudness guard: a build should rise, not jump. Each beat may be at most ~3.5 dB above
     // the original audio (or the zone's average, whichever is louder); smooth gain between beats.
@@ -177,7 +227,25 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         juce::AudioBuffer<float> post (2, postLen);
         post.clear();
         for (auto& m : model.moves)
-            renderAfterDrop (m, ctx, post);
+        {
+            if (! m.enabled || ! playsAfterDrop (m.type)) continue;
+            if (! m.customRegion)
+            {
+                renderAfterDrop (m, ctx, post);
+                continue;
+            }
+            // timed hit: starts regionStart beats after the drop and rings for the region's length
+            const int off = (int) std::llround (juce::jmax (0.0, m.regionStart) * spb);
+            const int len = juce::jmin (postLen - off, (int) std::llround ((m.regionEnd - juce::jmax (0.0, m.regionStart)) * spb));
+            if (off >= postLen || len < 256) continue;
+            juce::AudioBuffer<float> part (2, len);
+            part.clear();
+            MoveContext sc = ctx;
+            sc.lengthOverride = len / spb;
+            renderAfterDrop (m, sc, part);
+            for (int ch = 0; ch < 2; ++ch)
+                post.addFrom (ch, off, part, ch, 0, len);
+        }
         // what was already there after the drop (if anything) sets the ceiling, else -1 dBTP
         const int origPost = juce::jmax (0, juce::jmin (postLen, clipLen - (int) res->zoneEnd));
         const float origTp = origPost > 0 ? measureTruePeak (res->mix, (int) res->zoneEnd, origPost, sr) : 0.0f;
