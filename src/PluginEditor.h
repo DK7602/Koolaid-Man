@@ -5,6 +5,7 @@
 #include "WaveformView.h"
 #include "MoveStackView.h"
 #include "EffectCards.h"
+#include "ManualView.h"
 
 class KoolaidEditor : public juce::AudioProcessorEditor,
                       public juce::FileDragAndDropTarget,
@@ -24,6 +25,8 @@ public:
 
     /** Renders the editor at design size into an image (used by the snapshot tool). */
     juce::Image snapshot (float scale);
+    void openManual();
+    void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
 
 private:
     /** Paints the artwork; hosts every control in design coordinates. */
@@ -119,6 +122,8 @@ private:
     Box exportRangeBox { { 1036, 1002, 191, 27 }, { 1040, 1005, 160, 21 }, 18.0f, juce::Justification::centredLeft };
     Box formatBox { { 1262, 1002, 145, 27 }, { 1266, 1005, 116, 21 }, 18.0f, juce::Justification::centredLeft };
 
+    Btn manualHotspot { { 22, 262, 106, 46 }, 8.0f };
+    ManualView manual;
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;
 

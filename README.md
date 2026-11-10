@@ -10,6 +10,9 @@ DAW. It's exactly bar-aligned, so it lands right on the grid.
 Built for Cubase 14 Artist, and works in any DAW that loads VST3 (or AU on macOS).
 Personal-use project.
 
+**Manual:** built into the plug-in (gear menu > *Manual*, or click the small **KOOLAID MAN** label
+next to PRESET). The same text is in [docs/MANUAL.md](docs/MANUAL.md).
+
 ## Get it
 
 Every push builds the plug-in on GitHub Actions:

@@ -224,6 +224,9 @@ void WaveformView::paint (juce::Graphics& g)
         drawShadowText (g, proc.isCaptureArmed() ? "Press play in your DAW - recording starts on the next bar line and stops when you stop."
                                                  : "Drop the bars before your drop here (WAV / AIFF / FLAC / MP3)  -  or click to LOAD  -  or arm CAPTURE and play your session",
                         r.withTrimmedTop (64.0f), Skin::get().semibold (18.0f), juce::Justification::centredTop, col::textDim);
+        if (! proc.isCaptureArmed())
+            drawShadowText (g, "New here? Open the MANUAL from the gear menu, or click KOOLAID MAN next to PRESET.",
+                            r.withTrimmedTop (92.0f), Skin::get().semibold (17.0f), juce::Justification::centredTop, col::cyan.withAlpha (0.8f));
         return;
     }
 

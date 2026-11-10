@@ -114,6 +114,8 @@ KoolLookAndFeel::KoolLookAndFeel()
     setColour (juce::TextButton::textColourOnId, col::text);
     setColour (juce::ComboBox::outlineColourId, col::cyan);
     setColour (juce::ResizableWindow::backgroundColourId, col::menuBg);
+    setColour (juce::ScrollBar::thumbColourId, juce::Colour (0xffb2a6d6));
+    setColour (juce::ScrollBar::trackColourId, juce::Colour (0xff15111f));
 }
 
 juce::Font KoolLookAndFeel::getPopupMenuFont() { return Skin::get().semibold (18.0f); }

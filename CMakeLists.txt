@@ -35,6 +35,7 @@ juce_add_binary_data(KoolaidResources
     NAMESPACE KoolaidBinary
     SOURCES
         resources/skin.png
+        docs/MANUAL.md
         resources/fonts/BarlowCondensed-Medium.ttf
         resources/fonts/BarlowCondensed-SemiBold.ttf
         resources/fonts/BarlowCondensed-Bold.ttf
@@ -79,7 +80,8 @@ target_sources(KoolaidMan PRIVATE
     src/Skin.cpp
     src/WaveformView.cpp
     src/MoveStackView.cpp
-    src/EffectCards.cpp)
+    src/EffectCards.cpp
+    src/ManualView.cpp)
 
 target_include_directories(KoolaidMan PRIVATE src)
 
@@ -123,7 +125,8 @@ if(KOOLAID_BUILD_TESTS)
         src/Skin.cpp
         src/WaveformView.cpp
         src/MoveStackView.cpp
-        src/EffectCards.cpp)
+        src/EffectCards.cpp
+        src/ManualView.cpp)
 
     foreach(tool KoolaidSnapshot KoolaidHostTest)
         juce_add_gui_app(${tool} PRODUCT_NAME "${tool}")

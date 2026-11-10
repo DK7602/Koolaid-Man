@@ -38,6 +38,11 @@ public:
         stopTimer();
         {
             KoolaidEditor editor (*proc);
+            if (args.size() > 3 && args[3].startsWith ("manual"))
+            {
+                editor.openManual();
+                if (args[3] == "manual2") editor.scrollManualForSnapshot (6);
+            }
             auto img = editor.snapshot (scale);
             out.deleteFile();
             juce::FileOutputStream os (out);

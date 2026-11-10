@@ -90,6 +90,10 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
         root.addAndMakeVisible (*detectText[i]);
     }
     root.addChildComponent (bubble);
+    root.addAndMakeVisible (manualHotspot);
+    manualHotspot.setTooltip ("Open the Koolaid Man manual");
+    manualHotspot.onClick = [this] { openManual(); };
+    root.addChildComponent (manual);
 
     //------------------------------------------------------------------ header steps
     step1.setTooltip ("1. DRAG IN AUDIO - load the bars before your drop, or capture them from your track");
@@ -163,7 +167,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     };
     timeSigBox.setMouseCursor (juce::MouseCursor::PointingHandCursor);
     gearBtn.onClick = [this] { showGearMenu(); };
-    gearBtn.setTooltip ("Settings");
+    gearBtn.setTooltip ("Settings & Manual");
 
     //------------------------------------------------------------------ tabs / zoom / capture
     tab1.onClick = [this] { if (proc.getSettings().activeTab == 0 && ! proc.hasMusic()) chooseFile (0); setTab (0); };
@@ -599,6 +603,12 @@ void KoolaidEditor::askNumber (const juce::String& title, const juce::String& me
     }), true);
 }
 
+void KoolaidEditor::openManual()
+{
+    bubble.setVisible (false);
+    manual.open();
+}
+
 void KoolaidEditor::askClipBar()
 {
     askNumber ("CLIP POSITION", "Which bar of your project does this audio start on?\n(Used to play the drop in sync and to tell you where to drop the export.)",
@@ -632,6 +642,8 @@ void KoolaidEditor::showGearMenu()
     auto& s = proc.getSettings();
     juce::PopupMenu menu, snapMenu, previewMenu, sizeMenu;
     menu.addSectionHeader ("KOOLAID MAN");
+    menu.addItem (2, "Manual (How To Use)");
+    menu.addSeparator();
     menu.addItem (1, "Clip Starts At Bar " + juce::String (proc.getModel().clipStartBar) + "...");
     snapMenu.addItem (10, "Bar", true, s.snap == 0);
     snapMenu.addItem (11, "Beat", true, s.snap == 1);
@@ -658,6 +670,8 @@ void KoolaidEditor::showGearMenu()
         auto& st = proc.getSettings();
         if (r == 1)
             askClipBar();
+        else if (r == 2)
+            openManual();
         else if (r >= 10 && r <= 12) { st.snap = r - 10; }
         else if (r == 20 || r == 21) { st.previewReplaces = r == 20; zoneEdited(); }
         else if (r >= 30 && r < 36)  { setSize (juce::roundToInt (designW * sizes[r - 30]), juce::roundToInt (designH * sizes[r - 30])); }
@@ -672,6 +686,7 @@ void KoolaidEditor::showGearMenu()
                 "2. Build the drop from the moves stack - or hit ROLL.\n"
                 "3. Preview in sync with your session.\n"
                 "4. Drag the result back to your DAW at the bar shown.\n\n"
+                "Full manual: Settings (gear) > Manual, or click KOOLAID MAN next to PRESET.\n\n"
                 "Exports: " + km::exportFolder().getFullPathName(), "OH YEAH!", this);
     });
 }
