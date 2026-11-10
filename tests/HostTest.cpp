@@ -310,7 +310,8 @@ public:
 
             // export
             juce::String exportErr;
-            auto f = q.exportAudio (exportErr);
+            auto fs = q.exportAudio (exportErr);
+            auto f = fs.isEmpty() ? juce::File() : fs.getFirst();
             check (f.existsAsFile(), "export wrote " + f.getFileName() + " " + exportErr);
             if (f.existsAsFile())
             {
@@ -342,13 +343,108 @@ public:
             check (outBars > clipBars + 0.9 && std::abs (outBars - std::round (outBars)) < 1.0e-3,
                    "Impact adds a whole-bar tail after the drop (" + juce::String (clipBars, 2) + " -> " + juce::String (outBars, 2) + " bars)");
             juce::String err;
-            auto f = p.exportAudio (err);
+            auto fs = p.exportAudio (err);
+            auto f = fs.isEmpty() ? juce::File() : fs.getFirst();
             juce::AudioFormatManager fm;
             fm.registerBasicFormats();
             std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
             check (rd != nullptr && std::abs ((double) rd->lengthInSamples - r->mix.getNumSamples()) < 2.0, "export includes the tail");
             rd.reset();
             f.deleteFile();
+        }
+
+        // ---- undo / redo: one step per gesture
+        {
+            pump (700);   // let the previous test's edit settle into its own step
+            auto& m = p.getModel();
+            const auto before = m.moves.size();
+            m.moves.push_back (km::defaultMove (km::MoveType::Riser));
+            p.modelChanged (true);
+            m.moves.back().knob = 0.2f;              // same gesture (within 600 ms) -> merged
+            p.modelChanged (true);
+            pump (700);
+            m.moves.push_back (km::defaultMove (km::MoveType::Gap));
+            p.modelChanged (true);
+            check (p.canUndo(), "undo available after edits");
+            p.undo();
+            check (m.moves.size() == before + 1 && std::abs (m.moves.back().knob - 0.2f) < 1.0e-6f, "undo removes the last gesture only");
+            p.undo();
+            check (m.moves.size() == before, "second undo returns to the start (knob tweak merged into one step)");
+            check (p.canRedo(), "redo available");
+            p.redo();
+            p.redo();
+            check (m.moves.size() == before + 2, "redo replays both steps");
+        }
+
+        // ---- A/B compare
+        {
+            auto& m = p.getModel();
+            const auto aMoves = m.moves;
+            p.switchAB (1);
+            check (m.moves.size() == aMoves.size(), "B starts as a copy of A");
+            m.moves.clear();
+            p.modelChanged (true);
+            p.switchAB (0);
+            check (m.moves.size() == aMoves.size(), "back to A restores its moves");
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            KoolaidProcessor q;
+            q.setRateAndBufferSizeDetails (sr, 512);
+            q.prepareToPlay (sr, 512);
+            q.setStateInformation (mb.getData(), (int) mb.getSize());
+            q.switchAB (1);
+            check (q.getModel().moves.empty(), "B is saved with the project");
+            p.switchAB (1);
+            p.switchAB (0);
+        }
+
+        // ---- Build Amount = 0 plays the untouched audio, in sync
+        {
+            juce::AudioProcessorParameter* build = nullptr;
+            for (auto* prm : p.getParameters())
+                if (prm->getName (32) == "Build Amount") build = prm;
+            check (build != nullptr, "Build Amount parameter exposed to the host");
+            if (build != nullptr)
+            {
+                build->setValueNotifyingHost (0.0f);
+                p.setSyncPreview (true);
+                waitForRender (p);
+                auto r = p.getResult();
+                const int block = 512;
+                juce::AudioBuffer<float> buf (2, block);
+                const double ppqStart = (p.getModel().clipStartBar - 1) * 4.0 + p.getModel().zoneStart + 1.0;
+                ph.set (ppqStart, true);
+                p.processBlock (buf, midi);   // first block ramps the amount
+                ph.set (ppqStart + block / spb, true);
+                buf.clear();
+                p.processBlock (buf, midi);
+                const auto pos = (juce::int64) std::floor ((ppqStart + block / spb - (p.getModel().clipStartBar - 1) * 4.0) * spb);
+                bool same = true;
+                for (int i = 0; i < block; i += 17)
+                    same &= std::abs (buf.getSample (0, i) - r->source->audio.getSample (0, (int) (pos + i))) < 1.0e-4f;
+                check (same, "Build Amount 0% previews the original audio");
+                build->setValueNotifyingHost (1.0f);
+                ph.set (0.0, false);
+                p.processBlock (buf, midi);
+            }
+        }
+
+        // ---- stems export: music + fx, same length
+        {
+            p.getSettings().exportRange = km::ExportRange::Stems;
+            juce::String err;
+            auto files = p.exportAudio (err);
+            check (files.size() == 2, "stems export writes 2 files " + err);
+            if (files.size() == 2)
+            {
+                juce::AudioFormatManager fm;
+                fm.registerBasicFormats();
+                std::unique_ptr<juce::AudioFormatReader> r1 (fm.createReaderFor (files[0])), r2 (fm.createReaderFor (files[1]));
+                check (r1 != nullptr && r2 != nullptr && r1->lengthInSamples == r2->lengthInSamples, "stems line up (same length)");
+                check (files[0].getFileName().contains ("Music") && files[1].getFileName().contains ("FX"), "stems are named Music / FX");
+            }
+            for (auto& f : files) f.deleteFile();
+            p.getSettings().exportRange = km::ExportRange::FullClip;
         }
 
         // ---- page 2 cards

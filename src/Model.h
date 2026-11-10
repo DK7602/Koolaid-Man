@@ -116,7 +116,7 @@ using AnalysisPtr = std::shared_ptr<const DrumAnalysis>;
 
 //==============================================================================
 enum class PlaybackMode : int { PreDrop = 0, FullClip, IntoDrop, Original };
-enum class ExportRange : int { FullClip = 0, BuildZone, ZoneToEnd, FxLayer };
+enum class ExportRange : int { FullClip = 0, BuildZone, ZoneToEnd, FxLayer, Stems };
 enum class ExportFormat : int { Wav16 = 0, Wav24, Wav32f, Aiff24 };
 
 juce::StringArray playbackModeNames();

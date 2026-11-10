@@ -26,6 +26,18 @@ jobs:
         with:
           name: KoolaidMan-Windows
           path: dist
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DSourceDir=$PWD\dist" "/DAppVersion=1.0.${{ github.run_number }}" installer\KoolaidMan.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoolaidMan-Windows-Installer
+          path: installer/Output/KoolaidMan-Setup.exe
 
   macos:
     name: macOS (VST3 + AU + Standalone, universal)

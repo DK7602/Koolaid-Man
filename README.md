@@ -23,8 +23,9 @@ Every push builds the plug-in on GitHub Actions:
 
 1. Open the repo's **Actions** tab → latest **Build Koolaid Man** run.
 2. Download **KoolaidMan-Windows** (or **KoolaidMan-macOS**) under *Artifacts*.
-3. Windows: copy the `Koolaid Man.vst3` folder to `C:\Program Files\Common Files\VST3\`, then
-   rescan in Cubase (*Studio → VST Plug-in Manager*). It's an insert effect under **Tools**.
+3. Windows: easiest is **KoolaidMan-Windows-Installer** (run `KoolaidMan-Setup.exe`). Or copy the
+   `Koolaid Man.vst3` folder from **KoolaidMan-Windows** to `C:\Program Files\Common Files\VST3\`.
+   Then rescan in Cubase (*Studio → VST Plug-in Manager*). It's an insert effect under **Tools**.
    macOS: see `docs/INSTALL-MAC.txt`.
 
 ## Workflow (the four steps in the header)
@@ -63,6 +64,9 @@ Every push builds the plug-in on GitHub Actions:
 | **Drop Gap** | Depth · Length | Silence, Low-pass, High-pass |
 | **Impact** | Level · Tail | Hit + Crash, Hit Only, Crash + Downlifter (plays on the drop) |
 | **Sub Boom** | Level · Length | Deep, Punchy, Long Dive (plays on the drop) |
+
+**Workflow:** undo/redo (stack title bar), A/B compare of two versions, an automatable
+**Build Amount** parameter (0% = original, 100% = full drop, live), and stem export (music + FX).
 
 **Timeline:** the TIMELINE tab shows one lane per move; drag lanes to choose exactly when each
 move happens (double-click for auto).

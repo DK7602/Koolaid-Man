@@ -55,7 +55,21 @@ private:
         void mouseExit (const juce::MouseEvent&) override  { repaint(); }
         void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
         juce::String text;
-        bool active = false;
+        bool active = false, icon = true;
+    };
+
+    /** Small undo / redo arrow buttons. */
+    class ArrowButton : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        ArrowButton (juce::Rectangle<int> b, bool isRedo) : redo (isRedo) { setBounds (b); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        std::function<void()> onClick;
+        void setAvailable (bool a) { if (a != available) { available = a; repaint(); } }
+        void paint (juce::Graphics&) override;
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override  { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && available && onClick) onClick(); }
+        bool redo, available = false;
     };
 
     class Bubble : public juce::Component
@@ -88,6 +102,7 @@ private:
     void chooseFile (int slot);
     void loadFile (const juce::File&, int slot);
     void doRoll();
+    void afterRestore();   // after undo / redo / A-B switching
     void doExport (bool forDrag, const juce::MouseEvent* dragEvent);
     void toggleSync();
     void setTab (int);
@@ -118,6 +133,8 @@ private:
     // waveform panel
     Btn tab1 { { 30, 322, 186, 27 } }, tab2 { { 222, 322, 219, 27 } }, tab3 { { 451, 322, 135, 27 } };
     CodeTab timelineTab { { 594, 322, 150, 27 }, "TIMELINE" };
+    CodeTab abA { { 752, 322, 38, 27 }, "A" }, abB { { 794, 322, 38, 27 }, "B" }, abCopy { { 836, 322, 96, 27 }, "COPY TO B" };
+    ArrowButton undoBtn { { 362, 590, 32, 24 }, false }, redoBtn { { 398, 590, 32, 24 }, true };
     Box barsBox { { 930, 320, 268, 28 }, { 940, 322, 252, 24 }, 20.0f };
     Btn zoomIn { { 1220, 321, 38, 28 } }, zoomOut { { 1269, 321, 36, 28 } }, zoomFit { { 1317, 321, 41, 28 } }, captureBtn { { 1370, 321, 44, 28 } };
     WaveformView waveform { proc };

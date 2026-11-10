@@ -1,7 +1,11 @@
 KOOLAID MAN - Beat-Drop Creator (Windows)
 =========================================
 
-INSTALL (Cubase 14 Artist or any VST3 host)
+EASIEST: download "KoolaidMan-Windows-Installer" and run KoolaidMan-Setup.exe.
+It puts the VST3 in the right folder, adds a Start-menu entry for the
+standalone app, and can be removed from Windows Settings > Apps.
+
+INSTALL BY HAND (Cubase 14 Artist or any VST3 host)
 1. Close Cubase.
 2. Copy the whole "Koolaid Man.vst3" folder to:
        C:\Program Files\Common Files\VST3\

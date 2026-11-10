@@ -52,7 +52,10 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
 
     const int n = (int) (res->zoneEnd - res->zoneStart);
     if (n < 64)
+    {
+        res->music.makeCopyOf (res->mix);
         return res;
+    }
 
     juce::AudioBuffer<float> main (2, n), fx (2, n);
     fx.clear();
@@ -184,9 +187,11 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         }
     }
 
-    // write the zone back: processed music + fx layer
+    // write the zone back: processed music + fx layer (and the music alone, for stems)
+    res->music.makeCopyOf (res->mix);
     for (int ch = 0; ch < 2; ++ch)
     {
+        res->music.copyFrom (ch, (int) res->zoneStart, main, ch, 0, n);
         auto* out = res->mix.getWritePointer (ch, (int) res->zoneStart);
         auto* m = main.getReadPointer (ch);
         auto* f = fx.getReadPointer (ch);
@@ -202,23 +207,25 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         const float ceiling = juce::jlimit (juce::Decibels::decibelsToGain (-1.0f), juce::Decibels::decibelsToGain (-0.1f), origTp);
         res->limiterReductionDb = truePeakLimit (res->mix, (int) res->zoneStart, n, sr, ceiling);
         truePeakLimit (res->fx, (int) res->zoneStart, n, sr, ceiling);
+        truePeakLimit (res->music, (int) res->zoneStart, n, sr, ceiling);
         res->ceilingDb = juce::Decibels::gainToDecibels (ceiling);
     }
 
     // micro fades either side of the drop so the hit lands without a click
     const int dropFade = juce::jmin (n, 64);
-    for (int ch = 0; ch < 2; ++ch)
-    {
-        auto* out = res->mix.getWritePointer (ch, (int) res->zoneStart);
-        for (int i = 0; i < dropFade; ++i)
-            out[n - dropFade + i] *= (float) (dropFade - i) / dropFade;
-        if (res->zoneEnd + 24 < total)
+    for (auto* buf : { &res->mix, &res->music })
+        for (int ch = 0; ch < 2; ++ch)
         {
-            auto* post = res->mix.getWritePointer (ch, (int) res->zoneEnd);
-            for (int i = 0; i < 24; ++i)
-                post[i] *= (float) i / 24.0f;
+            auto* out = buf->getWritePointer (ch, (int) res->zoneStart);
+            for (int i = 0; i < dropFade; ++i)
+                out[n - dropFade + i] *= (float) (dropFade - i) / dropFade;
+            if (res->zoneEnd + 24 < total)
+            {
+                auto* post = buf->getWritePointer (ch, (int) res->zoneEnd);
+                for (int i = 0; i < 24; ++i)
+                    post[i] *= (float) i / 24.0f;
+            }
         }
-    }
 
     // after-drop moves (Impact, Sub Boom) land on the downbeat
     if (tail > 0)

@@ -58,6 +58,9 @@ KoolaidProcessor::KoolaidProcessor()
                                                                juce::NormalisableRange<float> (-24.0f, 12.0f, 0.1f), 0.0f,
                                                                juce::AudioParameterFloatAttributes().withLabel ("dB")));
     addParameter (syncParam = new juce::AudioParameterBool (juce::ParameterID { "syncPreview", 1 }, "Sync To Session", true));
+    addParameter (buildParam = new juce::AudioParameterFloat (juce::ParameterID { "buildAmount", 1 }, "Build Amount",
+                                                              juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+                                                              juce::AudioParameterFloatAttributes().withLabel ("%")));
 
     formatManager.registerBasicFormats();
 
@@ -65,6 +68,7 @@ KoolaidProcessor::KoolaidProcessor()
         model.templates[(size_t) t] = defaultMove ((MoveType) t);
     model.moves = factoryPresets().front().moves;
     assignUids (model.moves);
+    committed = captureEdit();
 
     renderThread.onResult = [this] (ResultPtr r)
     {
@@ -216,8 +220,19 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         return;
 
     const bool original = playOriginal.load();
-    const auto& src = original ? r->source->audio : r->mix;
-    const juce::int64 len = src.getNumSamples();
+    const auto& src = r->mix;
+    const auto& orig = r->source->audio;
+    const juce::int64 len = src.getNumSamples(), origLen = orig.getNumSamples();
+    // Build Amount: blend from the untouched audio (0) to the full drop (1), smoothed per block
+    const float amountTarget = original ? 0.0f : buildParam->get() / 100.0f;
+    const float amount0 = lastBuild;
+    lastBuild = amountTarget;
+    auto sampleAt = [&] (int ch, juce::int64 p, int i) -> float
+    {
+        const float a = amount0 + (amountTarget - amount0) * (float) i / (float) juce::jmax (1, numSamples);
+        const float o = p < origLen ? orig.getSample (juce::jmin (ch, orig.getNumChannels() - 1), (int) p) : 0.0f;
+        return o + (src.getSample (juce::jmin (ch, src.getNumChannels() - 1), (int) p) - o) * a;
+    };
 
     if (syncNow)
     {
@@ -230,12 +245,11 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         for (int ch = 0; ch < numOut; ++ch)
         {
             auto* out = buffer.getWritePointer (ch);
-            auto* s = src.getReadPointer (juce::jmin (ch, src.getNumChannels() - 1));
             for (int i = 0; i < numSamples; ++i)
             {
                 const juce::int64 p = first + i;
                 if (p >= 0 && p < len)
-                    out[i] = (replace ? 0.0f : out[i]) + s[p] * gain;
+                    out[i] = (replace ? 0.0f : out[i]) + sampleAt (ch, p, i) * gain;
             }
         }
         playhead.store (first + numSamples);
@@ -256,7 +270,7 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 else { stillPlaying = false; break; }
             }
             for (int ch = 0; ch < numOut; ++ch)
-                buffer.getWritePointer (ch)[i] += src.getSample (juce::jmin (ch, src.getNumChannels() - 1), (int) pos) * gain;
+                buffer.getWritePointer (ch)[i] += sampleAt (ch, pos, i) * gain;
             ++pos;
         }
         playhead.store (pos);
@@ -323,6 +337,8 @@ void KoolaidProcessor::modelChanged (bool markPresetDirty)
 {
     if (markPresetDirty)
         settings.presetDirty = true;
+    if (! restoring)
+        recordUndo();
 
     assignUids (model.moves);
     const double clipBeats = model.clipLengthBeats();
@@ -599,6 +615,7 @@ juce::String KoolaidProcessor::exportRangeLabel (ExportRange r) const
         case ExportRange::BuildZone: return "BUILD ZONE (" + formatLength (model.zoneEnd - model.zoneStart, bpb) + ")";
         case ExportRange::ZoneToEnd: return "ZONE + DROP (" + formatLength (clip - model.zoneStart, bpb) + ")";
         case ExportRange::FxLayer:   return "FX LAYER (" + formatLength (clip, bpb) + ")";
+        case ExportRange::Stems:     return "STEMS: MUSIC + FX (" + formatLength (clip, bpb) + ")";
     }
     return {};
 }
@@ -609,7 +626,7 @@ juce::String KoolaidProcessor::exportLandingBar() const
     return formatBarPosition (fromZone ? model.zoneStart : 0.0, model);
 }
 
-juce::File KoolaidProcessor::exportAudio (juce::String& error)
+juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
 {
     if (model.music == nullptr)
     {
@@ -625,14 +642,29 @@ juce::File KoolaidProcessor::exportAudio (juce::String& error)
     }
     const auto r = renderDrop (model, analysis, 0);
     const int total = r->mix.getNumSamples();
+
+    // Build Amount: blend each output from the untouched audio towards the full drop
+    const float amount = buildParam->get() / 100.0f;
+    auto blended = [&] (const juce::AudioBuffer<float>& processed, bool additive)
+    {
+        juce::AudioBuffer<float> out (processed);
+        if (amount < 0.999f)
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < total; ++i)
+                {
+                    const float o = (! additive && i < r->source->audio.getNumSamples())
+                                      ? r->source->audio.getSample (juce::jmin (ch, r->source->audio.getNumChannels() - 1), i) : 0.0f;
+                    out.setSample (ch, i, o + (processed.getSample (ch, i) - o) * amount);
+                }
+        return out;
+    };
+
     int a = 0, b = total;
-    const juce::AudioBuffer<float>* srcBuf = &r->mix;
     switch (settings.exportRange)
     {
-        case ExportRange::FullClip:  break;
         case ExportRange::BuildZone: a = (int) r->zoneStart; b = (int) r->zoneEnd; break;
         case ExportRange::ZoneToEnd: a = (int) r->zoneStart; break;
-        case ExportRange::FxLayer:   srcBuf = &r->fx; break;
+        default: break;
     }
     if (b - a < 16)
     {
@@ -640,49 +672,59 @@ juce::File KoolaidProcessor::exportAudio (juce::String& error)
         return {};
     }
 
+    std::vector<std::pair<juce::String, juce::AudioBuffer<float>>> outputs;
+    switch (settings.exportRange)
+    {
+        case ExportRange::FxLayer: outputs.push_back ({ "FX", blended (r->fx, true) }); break;
+        case ExportRange::Stems:
+            outputs.push_back ({ "Stem Music", blended (r->music, false) });
+            outputs.push_back ({ "Stem FX", blended (r->fx, true) });
+            break;
+        case ExportRange::FullClip:  outputs.push_back ({ "Full", blended (r->mix, false) }); break;
+        case ExportRange::BuildZone: outputs.push_back ({ "Zone", blended (r->mix, false) }); break;
+        case ExportRange::ZoneToEnd: outputs.push_back ({ "Drop", blended (r->mix, false) }); break;
+    }
+
     const bool aiff = settings.exportFormat == ExportFormat::Aiff24;
-    const juce::String rangeName = settings.exportRange == ExportRange::FullClip ? "Full"
-                                 : settings.exportRange == ExportRange::BuildZone ? "Zone"
-                                 : settings.exportRange == ExportRange::ZoneToEnd ? "Drop" : "FX";
-    juce::String base = "Koolaid Man - " + settings.presetName + " - " + rangeName + " - "
-                        + juce::String (model.bpm, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + "bpm - bar "
-                        + exportLandingBar().upToFirstOccurrenceOf (".", false, false);
-    auto file = exportFolder().getNonexistentChildFile (juce::File::createLegalFileName (base), aiff ? ".aif" : ".wav", false);
-
-    std::unique_ptr<juce::AudioFormat> format;
-    if (aiff) format = std::make_unique<juce::AiffAudioFormat>();
-    else      format = std::make_unique<juce::WavAudioFormat>();
-
-    std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
-    if (stream == nullptr)
-    {
-        error = "Couldn't write to " + file.getFullPathName();
-        return {};
-    }
     const int bits = settings.exportFormat == ExportFormat::Wav16 ? 16 : (settings.exportFormat == ExportFormat::Wav32f ? 32 : 24);
-    auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate).withNumChannels (2).withBitsPerSample (bits)
-                    .withSampleFormat (bits == 32 ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
-                                                  : juce::AudioFormatWriterOptions::SampleFormat::integral);
-    auto writer = format->createWriterFor (stream, opts);
-    if (writer == nullptr)
+    juce::Array<juce::File> files;
+    for (auto& [label, buffer] : outputs)
     {
-        error = "Couldn't create the audio file.";
-        file.deleteFile();
-        return {};
-    }
-    if (bits == 16)
-    {
-        // proper 16-bit: TPDF dither with noise shaping instead of plain truncation
-        juce::AudioBuffer<float> tmp (2, b - a);
+        const juce::String base = "Koolaid Man - " + settings.presetName + " - " + label + " - "
+                                + juce::String (model.bpm, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd (".") + "bpm - bar "
+                                + exportLandingBar().upToFirstOccurrenceOf (".", false, false);
+        auto file = exportFolder().getNonexistentChildFile (juce::File::createLegalFileName (base), aiff ? ".aif" : ".wav", false);
+
+        std::unique_ptr<juce::AudioFormat> format;
+        if (aiff) format = std::make_unique<juce::AiffAudioFormat>();
+        else      format = std::make_unique<juce::WavAudioFormat>();
+
+        std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
+        if (stream == nullptr)
+        {
+            error = "Couldn't write to " + file.getFullPathName();
+            return files;
+        }
+        auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate).withNumChannels (2).withBitsPerSample (bits)
+                        .withSampleFormat (bits == 32 ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
+                                                      : juce::AudioFormatWriterOptions::SampleFormat::integral);
+        auto writer = format->createWriterFor (stream, opts);
+        if (writer == nullptr)
+        {
+            error = "Couldn't create the audio file.";
+            file.deleteFile();
+            return files;
+        }
+        juce::AudioBuffer<float> section (2, b - a);
         for (int ch = 0; ch < 2; ++ch)
-            tmp.copyFrom (ch, 0, *srcBuf, ch, a, b - a);
-        km::ditherTo16Bit (tmp);
-        writer->writeFromAudioSampleBuffer (tmp, 0, tmp.getNumSamples());
+            section.copyFrom (ch, 0, buffer, ch, a, b - a);
+        if (bits == 16)
+            km::ditherTo16Bit (section);   // TPDF dither with noise shaping instead of plain truncation
+        writer->writeFromAudioSampleBuffer (section, 0, section.getNumSamples());
+        writer.reset();
+        files.add (file);
     }
-    else
-        writer->writeFromAudioSampleBuffer (*srcBuf, a, b - a);
-    writer.reset();
-    return file;
+    return files;
 }
 
 //==============================================================================
@@ -713,6 +755,22 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
     t.setProperty ("snap", settings.snap, nullptr);
     t.setProperty ("previewLevel", outputParam->get(), nullptr);
     t.setProperty ("syncPreview", syncParam->get(), nullptr);
+    t.setProperty ("buildAmount", buildParam->get(), nullptr);
+    t.setProperty ("abActive", abActive, nullptr);
+    const int other = 1 - abActive;
+    if (abUsed[other])
+    {
+        const auto& e = abSlots[other];
+        juce::ValueTree ab ("ABSLOT");
+        ab.setProperty ("zoneStart", e.zoneStart, nullptr);
+        ab.setProperty ("zoneEnd", e.zoneEnd, nullptr);
+        ab.setProperty ("sens808", e.sens808, nullptr);
+        ab.setProperty ("sensHats", e.sensHats, nullptr);
+        ab.setProperty ("presetName", e.presetName, nullptr);
+        ab.setProperty ("presetDirty", e.presetDirty, nullptr);
+        ab.appendChild (movesToTree (e.moves), nullptr);
+        t.appendChild (ab, nullptr);
+    }
 
     t.appendChild (movesToTree (model.moves), nullptr);
     juce::ValueTree tmpl ("TEMPLATES");
@@ -757,13 +815,14 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     settings.playbackMode = (PlaybackMode) juce::jlimit (0, 3, (int) t.getProperty ("playbackMode", 0));
     settings.loop = t.getProperty ("loop", settings.loop);
     settings.previewReplaces = t.getProperty ("previewReplaces", settings.previewReplaces);
-    settings.exportRange = (ExportRange) juce::jlimit (0, 3, (int) t.getProperty ("exportRange", 0));
+    settings.exportRange = (ExportRange) juce::jlimit (0, 4, (int) t.getProperty ("exportRange", 0));
     settings.exportFormat = (ExportFormat) juce::jlimit (0, 3, (int) t.getProperty ("exportFormat", 1));
     settings.uiScale = juce::jlimit (0.4f, 1.5f, (float) t.getProperty ("uiScale", settings.uiScale));
     settings.activeTab = juce::jlimit (0, 3, (int) t.getProperty ("activeTab", 0));
     settings.snap = juce::jlimit (0, 2, (int) t.getProperty ("snap", 1));
     *outputParam = (float) t.getProperty ("previewLevel", 0.0f);
     *syncParam = (bool) t.getProperty ("syncPreview", true);
+    *buildParam = (float) t.getProperty ("buildAmount", 100.0f);
 
     model.moves = movesFromTree (t.getChildWithName ("MOVES"));
     if (auto tmpl = t.getChildWithName ("TEMPLATES"); tmpl.isValid())
@@ -785,9 +844,135 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
             else musicSource = s;
         }
     }
+    // A/B: the active version is the model; the other one is stored separately
+    abActive = juce::jlimit (0, 1, (int) t.getProperty ("abActive", 0));
+    abUsed[0] = abUsed[1] = false;
+    if (auto ab = t.getChildWithName ("ABSLOT"); ab.isValid())
+    {
+        auto& e = abSlots[1 - abActive];
+        e.moves = movesFromTree (ab.getChildWithName ("MOVES"));
+        e.templates = model.templates;
+        e.zoneStart = ab.getProperty ("zoneStart", model.zoneStart);
+        e.zoneEnd = ab.getProperty ("zoneEnd", model.zoneEnd);
+        e.sens808 = ab.getProperty ("sens808", model.sens808);
+        e.sensHats = ab.getProperty ("sensHats", model.sensHats);
+        e.presetName = ab.getProperty ("presetName", settings.presetName);
+        e.presetDirty = ab.getProperty ("presetDirty", true);
+        abUsed[1 - abActive] = true;
+    }
+
     rebuildClips();
+    restoring = true;
     modelChanged (false);
+    restoring = false;
+    undoStack.clear();
+    redoStack.clear();
+    committed = captureEdit();
+    lastEditTime = 0;
     if (onModelReplaced) onModelReplaced();
+}
+
+//==============================================================================
+bool EditState::sameEdit (const EditState& o) const
+{
+    if (moves.size() != o.moves.size() || zoneStart != o.zoneStart || zoneEnd != o.zoneEnd
+        || sens808 != o.sens808 || sensHats != o.sensHats)
+        return false;
+    for (size_t i = 0; i < moves.size(); ++i)
+        if (! (moves[i] == o.moves[i])) return false;
+    for (size_t i = 0; i < templates.size(); ++i)
+        if (! (templates[i] == o.templates[i])) return false;
+    return true;
+}
+
+EditState KoolaidProcessor::captureEdit() const
+{
+    EditState e;
+    e.moves = model.moves;
+    e.templates = model.templates;
+    e.zoneStart = model.zoneStart;
+    e.zoneEnd = model.zoneEnd;
+    e.sens808 = model.sens808;
+    e.sensHats = model.sensHats;
+    e.presetName = settings.presetName;
+    e.presetDirty = settings.presetDirty;
+    return e;
+}
+
+void KoolaidProcessor::restoreEdit (const EditState& e)
+{
+    restoring = true;
+    model.moves = e.moves;
+    model.templates = e.templates;
+    model.zoneStart = e.zoneStart;
+    model.zoneEnd = e.zoneEnd;
+    model.sens808 = e.sens808;
+    model.sensHats = e.sensHats;
+    settings.presetName = e.presetName;
+    settings.presetDirty = e.presetDirty;
+    modelChanged (false);
+    committed = captureEdit();
+    lastEditTime = 0;
+    restoring = false;
+}
+
+void KoolaidProcessor::recordUndo()
+{
+    // One undo step per gesture: changes within 600 ms of each other are merged.
+    const auto now = captureEdit();
+    if (now.sameEdit (committed))
+    {
+        committed = now;   // e.g. only the preset name changed
+        return;
+    }
+    const auto t = juce::Time::getMillisecondCounter();
+    if (lastEditTime == 0 || t - lastEditTime > 600)
+    {
+        undoStack.push_back (committed);
+        if (undoStack.size() > 100) undoStack.erase (undoStack.begin());
+        redoStack.clear();
+    }
+    committed = now;
+    lastEditTime = t;
+}
+
+void KoolaidProcessor::undo()
+{
+    if (undoStack.empty()) return;
+    redoStack.push_back (captureEdit());
+    const auto e = undoStack.back();
+    undoStack.pop_back();
+    restoreEdit (e);
+}
+
+void KoolaidProcessor::redo()
+{
+    if (redoStack.empty()) return;
+    undoStack.push_back (captureEdit());
+    const auto e = redoStack.back();
+    redoStack.pop_back();
+    restoreEdit (e);
+}
+
+void KoolaidProcessor::switchAB (int slot)
+{
+    slot = juce::jlimit (0, 1, slot);
+    if (slot == abActive) return;
+    abSlots[abActive] = captureEdit();
+    abUsed[abActive] = true;
+    if (! abUsed[slot])
+    {
+        abSlots[slot] = abSlots[abActive];   // first visit: start from a copy
+        abUsed[slot] = true;
+    }
+    abActive = slot;
+    restoreEdit (abSlots[slot]);
+}
+
+void KoolaidProcessor::copyABToOther()
+{
+    abSlots[1 - abActive] = captureEdit();
+    abUsed[1 - abActive] = true;
 }
 
 //==============================================================================

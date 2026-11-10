@@ -15,6 +15,19 @@ struct SourceAudio
 };
 using SourcePtr = std::shared_ptr<const SourceAudio>;
 
+/** The part of the session that undo/redo and A/B compare work on. */
+struct EditState
+{
+    std::vector<km::Move> moves;
+    std::array<km::Move, km::numMoveTypes> templates;
+    double zoneStart = 0.0, zoneEnd = 0.0;
+    float sens808 = 0.55f, sensHats = 0.55f;
+    juce::String presetName;
+    bool presetDirty = false;
+
+    bool sameEdit (const EditState& o) const;   // ignores the preset name / dirty flag
+};
+
 /** UI / session settings that are saved with the project. */
 struct SessionSettings
 {
@@ -83,7 +96,8 @@ public:
     bool isRendering() const { return renderPending.load(); }
 
     /** Renders synchronously and writes a file. Returns the file (or an empty File + error). */
-    juce::File exportAudio (juce::String& error);
+    /** Renders and writes the export. Stems give two files (music + fx). */
+    juce::Array<juce::File> exportAudio (juce::String& error);
     juce::String exportRangeLabel (km::ExportRange) const;
     juce::String exportLandingBar() const;
 
@@ -110,11 +124,24 @@ public:
 
     std::function<void()> onModelReplaced;   // editor refresh hook (message thread)
 
+    //========================================================================== undo / A-B
+    bool canUndo() const { return ! undoStack.empty(); }
+    bool canRedo() const { return ! redoStack.empty(); }
+    void undo();
+    void redo();
+    int getABSlot() const { return abActive; }
+    void switchAB (int slot);      // 0 = A, 1 = B
+    void copyABToOther();          // copy the current version into the other slot
+    float getBuildAmount() const { return buildParam->get() / 100.0f; }
+
 private:
     void handleAsyncUpdate() override;
     void timerCallback() override;
 
     void rebuildClips();
+    EditState captureEdit() const;
+    void restoreEdit (const EditState&);
+    void recordUndo();
     void requestRender();
     void updatePlayRange();
     void finishCapture();
@@ -159,6 +186,16 @@ private:
 
     juce::AudioParameterFloat* outputParam = nullptr;
     juce::AudioParameterBool* syncParam = nullptr;
+    juce::AudioParameterFloat* buildParam = nullptr;
+    float lastBuild = 1.0f;
+
+    std::vector<EditState> undoStack, redoStack;
+    EditState committed;
+    juce::uint32 lastEditTime = 0;
+    bool restoring = false;
+    EditState abSlots[2];
+    bool abUsed[2] { false, false };
+    int abActive = 0;
     juce::AudioFormatManager formatManager;
     juce::Random rng;
 

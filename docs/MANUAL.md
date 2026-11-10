@@ -182,6 +182,20 @@ Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and find
 
 Your whole session (audio, zone, moves and settings) is saved with your DAW project automatically.
 
+# Undo, A/B and Build Amount
+
+## Undo and Redo
+
+The two arrow buttons at the right of the **MOVES STACK** title bar undo and redo your changes to the moves, their timing and the build zone. A knob drag counts as one step, so you don't have to click undo fifty times.
+
+## A/B compare
+
+The **A** and **B** buttons next to the TIMELINE tab hold two completely separate versions of your drop. Click **B** to start a second version (it starts as a copy of A), change whatever you like, then flip between **A** and **B** while it plays to hear which hits harder. **COPY TO B** (or **COPY TO A**) copies the version you're on into the other slot. Both versions are saved with your project.
+
+## Build Amount (automate it!)
+
+**Build Amount** is a parameter you can automate in your DAW (in Cubase, show the track's automation and pick *Build Amount*). At **100%** you hear the full drop; at **0%** you hear your original audio. In between, it blends smoothly, live while it plays. Ride it to bring the build in gradually or to pull it back in places. Exports use the current Build Amount.
+
 # Previewing
 
 ## Local preview (no DAW needed)
@@ -210,6 +224,7 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - **BUILD ZONE**: just the build, starting at the zone's start.
 - **ZONE + DROP**: from the start of the build to the end of the audio.
 - **FX LAYER**: only the added sounds, to layer on top of your original.
+- **STEMS: MUSIC + FX**: two files at once, the processed music and the added sounds, so you can mix them separately. Drag the button and both come along.
 
 **Formats:** WAV 16-bit, WAV 24-bit, WAV 32-bit float or AIFF 24-bit, at your project's sample rate. 16-bit exports get proper **TPDF dither with noise shaping**, so quiet tails don't turn grainy.
 

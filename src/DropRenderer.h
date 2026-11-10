@@ -13,6 +13,7 @@ struct RenderResult
     ClipPtr source;                     // the untouched clip (for A/B and display)
     juce::AudioBuffer<float> mix;       // full clip length with the processed zone
     juce::AudioBuffer<float> fx;        // fx layer only (full clip length)
+    juce::AudioBuffer<float> music;     // processed music without the fx layer (for stems)
     AnalysisPtr analysis;
     double sampleRate = 48000.0;
     double samplesPerBeat = 22153.8;

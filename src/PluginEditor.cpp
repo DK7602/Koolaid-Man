@@ -48,14 +48,36 @@ void KoolaidEditor::CodeTab::paint (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (0.1f));
         g.fillRoundedRectangle (r, 6.0f);
     }
-    // little lanes icon
-    for (int i = 0; i < 3; ++i)
-    {
-        g.setColour (juce::Colours::white.withAlpha (0.9f));
-        g.fillRoundedRectangle (r.getX() + 12.0f + (float) (i % 2) * 5.0f, r.getY() + 7.0f + (float) i * 5.0f, 13.0f - (float) (i % 2) * 3.0f, 3.0f, 1.5f);
-    }
-    drawShadowText (g, text, r.withTrimmedLeft (22.0f), Skin::get().bold (18.0f), juce::Justification::centred,
+    if (icon)   // little lanes icon
+        for (int i = 0; i < 3; ++i)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.fillRoundedRectangle (r.getX() + 12.0f + (float) (i % 2) * 5.0f, r.getY() + 7.0f + (float) i * 5.0f, 13.0f - (float) (i % 2) * 3.0f, 3.0f, 1.5f);
+        }
+    drawShadowText (g, text, r.withTrimmedLeft (icon ? 22.0f : 0.0f), Skin::get().bold (18.0f), juce::Justification::centred,
                     juce::Colours::white, juce::Colour (0x8c000000));
+}
+
+void KoolaidEditor::ArrowButton::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const bool over = isMouseOver() && available;
+    g.setColour (over ? col::hotPink.withAlpha (0.35f) : col::lavender.withAlpha (0.16f));
+    g.fillRoundedRectangle (r, 6.0f);
+    g.setColour (col::lavender.withAlpha (available ? 0.8f : 0.3f));
+    g.drawRoundedRectangle (r.reduced (0.5f), 6.0f, 1.0f);
+    // curved arrow
+    juce::Path arc;
+    const auto c = r.getCentre().translated (0.0f, 2.0f);
+    arc.addCentredArc (c.x, c.y, 7.0f, 6.0f, 0.0f, redo ? -2.4f : 2.4f, redo ? 0.9f : -0.9f, true);
+    const auto tip = arc.getPointAlongPath (0.0f);
+    juce::Path head;
+    head.addTriangle (tip.x - 4.0f, tip.y - 1.0f, tip.x + 4.0f, tip.y - 1.0f, tip.x, tip.y + 5.0f);
+    head.applyTransform (juce::AffineTransform::rotation (redo ? -0.7f : 0.7f, tip.x, tip.y));
+    const auto ink = available ? col::text : col::textDim.withAlpha (0.5f);
+    g.setColour (ink);
+    g.strokePath (arc, juce::PathStrokeType (2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.fillPath (head);
 }
 
 void KoolaidEditor::Bubble::show (juce::Component& near, const juce::String& t)
@@ -89,7 +111,8 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
 
     for (auto* c : std::initializer_list<juce::Component*> {
              &step1, &step2, &step3, &step4, &presetPrev, &presetNext, &presetName, &saveBtn, &saveAsBtn, &browseBtn,
-             &tempoBox, &syncBtn, &timeSigBox, &gearBtn, &tab1, &tab2, &tab3, &timelineTab, &barsBox, &zoomIn, &zoomOut, &zoomFit,
+             &tempoBox, &syncBtn, &timeSigBox, &gearBtn, &tab1, &tab2, &tab3, &timelineTab, &abA, &abB, &abCopy,
+             &undoBtn, &redoBtn, &barsBox, &zoomIn, &zoomOut, &zoomFit,
              &captureBtn, &waveform, &playBtn, &stopBtn, &loopBtn, &prevBtn, &nextBtn, &playbackBox, &lengthBox, &dropAtBox,
              &syncSessionBtn, &stack, &addMoveBtn, &duplicateBtn, &deleteBtn, &analyzeBtn, &rollBtn, &instantBtn,
              &previewBtn, &exportBtn, &exportRangeBox, &formatBox })
@@ -204,6 +227,21 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     tab2.onClick = [this] { if (proc.getSettings().activeTab == 1 && proc.getModel().drums == nullptr) chooseFile (1); setTab (1); };
     tab3.onClick = [this] { setTab (2); };
     timelineTab.onClick = [this] { setTab (3); };
+    for (auto* t : { &abA, &abB, &abCopy }) t->icon = false;
+    abA.setTooltip ("A/B: version A of your drop");
+    abB.setTooltip ("A/B: version B of your drop - flip between them while listening");
+    abCopy.setTooltip ("Copy this version into the other slot");
+    abA.onClick = [this] { proc.switchAB (0); afterRestore(); };
+    abB.onClick = [this] { proc.switchAB (1); afterRestore(); };
+    abCopy.onClick = [this]
+    {
+        proc.copyABToOther();
+        waveform.showMessage ("Copied to " + juce::String (proc.getABSlot() == 0 ? "B" : "A"), 1500);
+    };
+    undoBtn.setTooltip ("Undo");
+    redoBtn.setTooltip ("Redo");
+    undoBtn.onClick = [this] { proc.undo(); afterRestore(); };
+    redoBtn.onClick = [this] { proc.redo(); afterRestore(); };
     timelineTab.setTooltip ("TIMELINE: one lane per move - drag to choose exactly when each move happens (double-click a lane for auto)");
     tab1.setTooltip ("AUDIO 1: your two-track (the bars before the drop)");
     tab2.setTooltip ("AUDIO 2: optional drum / 808 stem used to find the snare, 808 and hats");
@@ -392,7 +430,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     {
         juce::PopupMenu menu;
         menu.addSectionHeader ("EXPORT");
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 5; ++i)
             menu.addItem (i + 1, proc.exportRangeLabel ((km::ExportRange) i), true, (int) proc.getSettings().exportRange == i);
         menu.showMenuAsync (menuOptionsFor (&exportRangeBox), [this] (int r)
         {
@@ -475,6 +513,9 @@ void KoolaidEditor::timerCallback()
         || proc.isCaptureArmed() != lastCapture || proc.isCapturing() != lastCapturing || proc.isCapturing())
         refreshTransport();
 
+    undoBtn.setAvailable (proc.canUndo());
+    redoBtn.setAvailable (proc.canRedo());
+
     if (flashCountdown > 0 && --flashCountdown == 0 && flashing != nullptr)
         flashing->setFlash (false);
 }
@@ -532,6 +573,12 @@ void KoolaidEditor::refreshAll()
     tab2.setGlow (s.activeTab == 1 ? col::lavender : juce::Colours::transparentBlack);
     tab3.setGlow (s.activeTab == 2 ? col::hotPink : juce::Colours::transparentBlack);
     timelineTab.setActive (s.activeTab == 3);
+    abA.setActive (proc.getABSlot() == 0);
+    abB.setActive (proc.getABSlot() == 1);
+    abCopy.text = proc.getABSlot() == 0 ? "COPY TO B" : "COPY TO A";
+    abCopy.repaint();
+    undoBtn.setAvailable (proc.canUndo());
+    redoBtn.setAvailable (proc.canRedo());
     waveform.setSelectedUid (stack.getSelectedUid());
 
 
@@ -838,24 +885,36 @@ void KoolaidEditor::doRoll()
     waveform.showMessage ("New idea: " + proc.getSettings().presetName + " - Save As to keep it", 2500);
 }
 
+void KoolaidEditor::afterRestore()
+{
+    const auto& moves = proc.getModel().moves;
+    if (stack.selectedIndex() < 0 && ! moves.empty())
+        stack.select (moves.front().uid);
+    refreshAll();
+}
+
 void KoolaidEditor::doExport (bool forDrag, const juce::MouseEvent*)
 {
     juce::String err;
-    auto file = proc.exportAudio (err);
-    if (file == juce::File())
+    auto files = proc.exportAudio (err);
+    if (files.isEmpty())
     {
         waveform.showMessage (err, 4000);
         return;
     }
-    lastExport = file;
+    lastExport = files.getFirst();
     if (forDrag)
     {
-        juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
-        waveform.showMessage ("Drop it at bar " + proc.exportLandingBar() + " - it lands right on the grid", 5000);
+        juce::StringArray paths;
+        for (auto& f : files) paths.add (f.getFullPathName());
+        juce::DragAndDropContainer::performExternalDragDropOfFiles (paths, false, this);
+        waveform.showMessage ("Drop " + juce::String (files.size() > 1 ? "them" : "it") + " at bar " + proc.exportLandingBar()
+                              + " - " + (files.size() > 1 ? "they land" : "it lands") + " right on the grid", 5000);
     }
     else
     {
-        waveform.showMessage ("Saved " + file.getFileName() + "  -  drag EXPORT into your DAW, or find it in Documents/Koolaid Man/Exports", 6000);
+        waveform.showMessage ("Saved " + (files.size() > 1 ? juce::String (files.size()) + " stems" : files.getFirst().getFileName())
+                              + "  -  drag EXPORT into your DAW, or find it in Documents/Koolaid Man/Exports", 6000);
     }
 }
 
