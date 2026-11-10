@@ -26,6 +26,10 @@ PrivilegesRequired=admin
 WizardStyle=modern
 UninstallDisplayName=Koolaid Man (Beat-Drop Creator)
 CloseApplications=yes
+; a plug-in's code file ends in .vst3 - include it so Setup notices a DAW (or the plug-in
+; scanner) holding it open and offers to close it, instead of failing with "Access is denied"
+CloseApplicationsFilter=*.exe,*.dll,*.vst3
+RestartApplications=no
 
 [Types]
 Name: "full"; Description: "VST3 plug-in + standalone app"
@@ -37,8 +41,9 @@ Name: "vst3"; Description: "VST3 plug-in (Cubase and other DAWs)"; Types: full p
 Name: "standalone"; Description: "Standalone app (no DAW needed)"; Types: full
 
 [Files]
-Source: "{#SourceDir}\Koolaid Man.vst3\*"; DestDir: "{commoncf64}\VST3\Koolaid Man.vst3"; Flags: recursesubdirs createallsubdirs ignoreversion; Components: vst3
-Source: "{#SourceDir}\Koolaid Man.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: standalone
+; restartreplace: if the plug-in is still locked, replace it at the next reboot instead of failing
+Source: "{#SourceDir}\Koolaid Man.vst3\*"; DestDir: "{commoncf64}\VST3\Koolaid Man.vst3"; Flags: recursesubdirs createallsubdirs ignoreversion restartreplace uninsrestartdelete; Components: vst3
+Source: "{#SourceDir}\Koolaid Man.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete; Components: standalone
 Source: "{#SourceDir}\INSTALL.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -50,4 +55,5 @@ Name: "{group}\Uninstall Koolaid Man"; Filename: "{uninstallexe}"
 Filename: "{app}\INSTALL.txt"; Description: "Read the quick start"; Flags: postinstall shellexec skipifsilent unchecked
 
 [Messages]
+SetupAppRunningError=Koolaid Man is open (in your DAW or the standalone app).%n%nClose Cubase / your DAW and the Koolaid Man app, then click OK.
 FinishedLabel=Koolaid Man is installed.%n%nIn Cubase: rescan plug-ins if needed (Studio > VST Plug-in Manager), then put Koolaid Man on an Insert slot - it's under Tools.

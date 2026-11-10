@@ -4,6 +4,9 @@ KOOLAID MAN - Beat-Drop Creator (Windows)
 EASIEST: download "KoolaidMan-Windows-Installer" and run KoolaidMan-Setup.exe.
 It puts the VST3 in the right folder, adds a Start-menu entry for the
 standalone app, and can be removed from Windows Settings > Apps.
+Close Cubase (and the Koolaid Man app) before installing or updating - Windows
+can't replace a plug-in while a program has it loaded. If Setup still says a
+file is in use, let it replace the file at the next restart.
 
 INSTALL BY HAND (Cubase 14 Artist or any VST3 host)
 1. Close Cubase.
