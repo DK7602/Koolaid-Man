@@ -60,7 +60,7 @@ Everything (audio included) is saved with your DAW project.
 
 ## Build from source
 
-Requires CMake ≥ 3.22 and a C++17 compiler. JUCE 8 is downloaded automatically.
+Requires CMake ≥ 3.24 and a C++17 compiler. JUCE 8 is downloaded automatically.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -78,5 +78,6 @@ snapshot tool (see `.github/workflows/build.yml` for how they're run).
 - UI art: your mockup (`resources/skin.png`) with the title spelling fixed to **KOOLAID MAN** and
   the effect cards recolored; every value, knob, list and waveform on top of it is live.
 - Fonts: Barlow / Barlow Condensed (SIL Open Font License, `resources/fonts/OFL.txt`).
+- Pitch shifting: [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (MIT).
 - Built with [JUCE](https://juce.com). "Kool-Aid Man" is a trademark of its owner. This project is
   for personal, non-commercial use only.

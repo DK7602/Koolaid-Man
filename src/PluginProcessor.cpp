@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "DrumDetector.h"
+#include "Mastering.h"
 
 using namespace km;
 
@@ -664,7 +665,17 @@ juce::File KoolaidProcessor::exportAudio (juce::String& error)
         file.deleteFile();
         return {};
     }
-    writer->writeFromAudioSampleBuffer (*srcBuf, a, b - a);
+    if (bits == 16)
+    {
+        // proper 16-bit: TPDF dither with noise shaping instead of plain truncation
+        juce::AudioBuffer<float> tmp (2, b - a);
+        for (int ch = 0; ch < 2; ++ch)
+            tmp.copyFrom (ch, 0, *srcBuf, ch, a, b - a);
+        km::ditherTo16Bit (tmp);
+        writer->writeFromAudioSampleBuffer (tmp, 0, tmp.getNumSamples());
+    }
+    else
+        writer->writeFromAudioSampleBuffer (*srcBuf, a, b - a);
     writer.reset();
     return file;
 }

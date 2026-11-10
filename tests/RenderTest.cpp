@@ -7,6 +7,7 @@
 #include "DropRenderer.h"
 #include "DrumDetector.h"
 #include "Presets.h"
+#include "Mastering.h"
 
 using namespace km;
 
@@ -174,6 +175,8 @@ int main (int argc, char** argv)
             std::cout << "  " << name.paddedRight (' ', 44) << juce::String (ms, 1).paddedLeft (' ', 7) << " ms   zone diff "
                       << juce::String (diff / (r->zoneEnd - r->zoneStart), 4) << "   max beat jump " << juce::String (jump, 1) << " dB\n";
             if (jump > 6.0) { std::cout << "FAIL: " << name << " is " << juce::String (jump, 1) << " dB louder than the track\n"; ++failures; }
+            const float tp = juce::Decibels::gainToDecibels (measureTruePeak (r->mix, (int) r->zoneStart, (int) (r->zoneEnd - r->zoneStart), sr));
+            if (tp > r->ceilingDb + 0.3f) { std::cout << "FAIL: " << name << " true peak " << tp << " dBTP over ceiling " << r->ceilingDb << "\n"; ++failures; }
             if (diff < 1.0e-3) { std::cout << "FAIL: " << name << " did nothing\n"; ++failures; }
             if (outside > 1.0e-6) { std::cout << "FAIL: " << name << " touched audio before the zone\n"; ++failures; }
             writeWav (outDir, "move - " + name, r->mix, sr);
@@ -212,6 +215,64 @@ int main (int argc, char** argv)
             std::cout << "roll " << i << ": " << desc << "\n";
             writeWav (outDir, "roll " + juce::String (i), r->mix, sr);
         }
+    }
+
+    // ---- studio-grade pitch: a pure 440 Hz tone shifted +12 st must come out as a clean 880 Hz
+    {
+        auto tone = std::make_shared<ClipData>();
+        tone->sampleRate = sr;
+        tone->audio.setSize (2, (int) (sr * 60.0 / bpm * 16));
+        for (int i = 0; i < tone->audio.getNumSamples(); ++i)
+        {
+            const float v = 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 440.0 * i / sr);
+            tone->audio.setSample (0, i, v);
+            tone->audio.setSample (1, i, v);
+        }
+        DropModel m = model;
+        m.music = tone;
+        m.zoneStart = 0.0;
+        m.zoneEnd = 16.0;
+        Move p = defaultMove (MoveType::Pitch);
+        p.mode = 1; p.semitones = 12;
+        m.moves = { p };
+        auto r = renderDrop (m, nullptr, 1);
+        writeWav (outDir, "pitch-tone-plus12", r->mix, sr);
+        const int a0 = r->mix.getNumSamples() / 3, len = (int) sr;   // a second from the middle
+        auto goertzel = [&] (double f)
+        {
+            const double w = juce::MathConstants<double>::twoPi * f / sr, cw = 2.0 * std::cos (w);
+            double s1 = 0, s2 = 0;
+            for (int i = 0; i < len; ++i) { const double s0 = r->mix.getSample (0, a0 + i) + cw * s1 - s2; s2 = s1; s1 = s0; }
+            return s1 * s1 + s2 * s2 - cw * s1 * s2;
+        };
+        double total = 0;
+        for (int i = 0; i < len; ++i) total += (double) r->mix.getSample (0, a0 + i) * r->mix.getSample (0, a0 + i);
+        // energy in the 870-890 Hz band (1 Hz bins over a 1 s window)
+        double at880 = 0.0;
+        for (int f = 870; f <= 890; ++f) at880 += goertzel ((double) f) * 2.0 / len;
+        const double at440 = goertzel (440.0) * 2.0 / len;
+        const double purity = at880 / juce::jmax (1.0e-12, total);
+        std::cout << "pitch +12 on a 440 Hz tone: energy at 880 Hz (+-10 Hz) " << juce::String (purity * 100.0, 1) << "%, left at 440 Hz "
+                  << juce::String (at440 / juce::jmax (1.0e-12, total) * 100.0, 2) << "%\n";
+        if (purity < 0.9) { std::cout << "FAIL: pitch shift is not clean\n"; ++failures; }
+    }
+
+    // ---- 16-bit export dither: values land exactly on 16-bit steps and quiet audio survives
+    {
+        juce::AudioBuffer<float> q (2, 48000);
+        for (int i = 0; i < 48000; ++i)
+            for (int ch = 0; ch < 2; ++ch)
+                q.setSample (ch, i, 0.00005f * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / 48000.0));
+        ditherTo16Bit (q);
+        bool onGrid = true, nonSilent = false;
+        for (int i = 0; i < 48000; ++i)
+        {
+            const float v = q.getSample (0, i) * 32767.0f;
+            onGrid &= std::abs (v - std::round (v)) < 1.0e-3f;
+            nonSilent |= v != 0.0f;
+        }
+        std::cout << "dither: on 16-bit grid " << (int) onGrid << ", -86 dB tone preserved " << (int) nonSilent << "\n";
+        if (! onGrid || ! nonSilent) { std::cout << "FAIL: dither\n"; ++failures; }
     }
 
     // ---- state round trip of moves

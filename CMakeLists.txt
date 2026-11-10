@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.24)
 
 project(KoolaidMan VERSION 1.0.0 LANGUAGES C CXX)
 
@@ -25,6 +25,14 @@ else()
         GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(JUCE)
 endif()
+
+# Signalsmith Stretch (MIT): high-quality pitch shifting for the Pitch move
+include(FetchContent)
+FetchContent_Declare(signalsmith-stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        1.4.0
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(signalsmith-stretch)
 
 option(KOOLAID_BUILD_TESTS "Build the offline render test + UI snapshot tools" OFF)
 
@@ -72,6 +80,7 @@ set(KOOLAID_CORE_SOURCES
     src/DrumDetector.cpp
     src/MoveProcessors.cpp
     src/DropRenderer.cpp
+    src/Mastering.cpp
     src/Presets.cpp)
 
 target_sources(KoolaidMan PRIVATE
@@ -98,6 +107,7 @@ target_compile_definitions(KoolaidMan PUBLIC
 target_link_libraries(KoolaidMan
     PRIVATE
         KoolaidResources
+        signalsmith-stretch
         juce::juce_audio_utils
         juce::juce_audio_formats
         juce::juce_dsp
@@ -117,7 +127,7 @@ if(KOOLAID_BUILD_TESTS)
     target_compile_definitions(KoolaidTests PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_FLAC=1)
     target_link_libraries(KoolaidTests PRIVATE
-        juce::juce_audio_formats juce::juce_dsp juce::juce_audio_basics juce::juce_data_structures
+        juce::juce_audio_formats juce::juce_dsp juce::juce_audio_basics juce::juce_data_structures signalsmith-stretch
         juce::juce_recommended_config_flags)
 
     set(KOOLAID_UI_SOURCES
@@ -136,7 +146,7 @@ if(KOOLAID_BUILD_TESTS)
             JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1
             JucePlugin_Name="Koolaid Man" JucePlugin_VersionString="1.0.0")
         target_link_libraries(${tool} PRIVATE
-            KoolaidResources
+            KoolaidResources signalsmith-stretch
             juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
             juce::juce_recommended_config_flags)
     endforeach()

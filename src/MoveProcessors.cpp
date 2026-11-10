@@ -1,5 +1,7 @@
 #include "MoveProcessors.h"
 #include "DrumDetector.h"
+#include <juce_dsp/juce_dsp.h>
+#include <signalsmith-stretch/signalsmith-stretch.h>
 
 namespace km
 {
@@ -114,26 +116,53 @@ namespace
         double phase = 0.5;
     };
 
-    /** Shifts a buffer by a per-sample semitone function, latency compensated. */
+    //==========================================================================
+    /** Studio-quality pitch shift (Signalsmith Stretch, spectral), following a per-sample
+        semitone curve. Latency is compensated, so the output stays sample-aligned. */
     template <typename SemiFn>
-    void pitchShiftBuffer (Buffer& b, double sr, SemiFn semisAt, double window = 0.05)
+    void pitchShiftHQ (Buffer& b, double sr, SemiFn semisAt)
     {
-        const int n = b.getNumSamples();
-        for (int c = 0; c < b.getNumChannels(); ++c)
+        const int n = b.getNumSamples(), numCh = b.getNumChannels();
+        if (n < 64) return;
+        signalsmith::stretch::SignalsmithStretch<float> st;
+        st.presetDefault (numCh, (float) sr);
+        const int inLat = st.inputLatency(), outLat = st.outputLatency();
+
+        Buffer in (numCh, n + inLat), out (numCh, n + outLat);
+        in.clear();
+        out.clear();
+        for (int ch = 0; ch < numCh; ++ch)
+            in.copyFrom (ch, 0, b, ch, 0, n);
+
+        std::vector<float*> ip ((size_t) numCh), op ((size_t) numCh);
+        auto point = [numCh] (Buffer& buf, int offset, std::vector<float*>& v)
         {
-            PitchShifter ps; ps.prepare (sr, window);
-            const int lat = ps.latency();
-            std::vector<float> out ((size_t) n);
-            auto* d = b.getWritePointer (c);
-            for (int i = 0; i < n + lat; ++i)
-            {
-                const float x = i < n ? d[i] : 0.0f;
-                const double st = semisAt (juce::jlimit (0, n - 1, i - lat));
-                const float y = ps.process (x, std::pow (2.0, st / 12.0));
-                if (i >= lat) out[(size_t) (i - lat)] = y;
-            }
-            std::copy (out.begin(), out.end(), d);
+            for (int ch = 0; ch < numCh; ++ch) v[(size_t) ch] = buf.getWritePointer (ch) + offset;
+        };
+
+        // prime so that the processing time starts at the first input sample
+        st.setTransposeSemitones ((float) semisAt (0));
+        point (in, 0, ip);
+        st.seek (ip.data(), inLat, 1.0);
+
+        const int block = 256;
+        int inPos = inLat, outPos = 0;
+        while (outPos < n)
+        {
+            const int len = juce::jmin (block, n - outPos);
+            st.setTransposeSemitones ((float) semisAt (juce::jlimit (0, n - 1, outPos)));
+            point (in, inPos, ip);
+            point (out, outPos, op);
+            st.process (ip.data(), len, op.data(), len);
+            inPos += len;
+            outPos += len;
         }
+        point (out, outPos, op);
+        st.flush (op.data(), outLat);
+
+        // output has outputLatency() samples of pre-roll
+        for (int ch = 0; ch < numCh; ++ch)
+            b.copyFrom (ch, 0, out, ch, outLat, n);
     }
 
     //==========================================================================
@@ -475,8 +504,7 @@ namespace
         const double p = juce::jmap ((double) m.knob, 0.35, 3.2);
         const double target = m.semitones;
         const bool ramp = m.mode == 0;
-        pitchShiftBuffer (b, c.sampleRate, [&] (int i) { return ramp ? target * curve ((double) i / n, p) : target; },
-                          m.semitones < 0 ? 0.06 : 0.045);
+        pitchShiftHQ (b, c.sampleRate, [&] (int i) { return ramp ? target * curve ((double) i / n, p) : target; });
     }
 
     void doTapeStop (const Move& m, const MoveContext& c, Buffer& b)
@@ -529,15 +557,33 @@ namespace
         const double fc = filterCutoff (m.knob);
         const double k = 2.0 - 1.9 * m.knob2;
         const Buffer dry (b);
-        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        const int numCh = b.getNumChannels();
+
+        // run the filter at 2x the sample rate (linear-phase half-band FIR), so resonant
+        // sweeps stay smooth and correctly tuned right up to the top of the spectrum
+        juce::dsp::Oversampling<float> os ((size_t) numCh, 1, juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+        const int block = 512;
+        os.initProcessing ((size_t) block);
+        const int lat = (int) std::lround (os.getLatencyInSamples());
+        Buffer in (numCh, n + lat), out (numCh, n + lat);
+        in.clear();
+        out.clear();
+        for (int ch = 0; ch < numCh; ++ch)
+            in.copyFrom (ch, 0, b, ch, 0, n);
+
+        std::vector<Svf> filters ((size_t) numCh);
+        const double osRate = c.sampleRate * 2.0;
+        for (int s0 = 0; s0 < n + lat; s0 += block)
         {
-            Svf f;
-            auto* d = b.getWritePointer (ch);
-            for (int i = 0; i < n; ++i)
+            const int len = juce::jmin (block, n + lat - s0);
+            juce::dsp::AudioBlock<float> inBlock (in.getArrayOfWritePointers(), (size_t) numCh, (size_t) s0, (size_t) len);
+            auto up = os.processSamplesUp (inBlock);
+            const int upLen = (int) up.getNumSamples();
+            for (int i = 0; i < upLen; ++i)
             {
                 if ((i & 31) == 0)
                 {
-                    const double t = std::pow ((double) i / n, 1.35);
+                    const double t = std::pow (juce::jlimit (0.0, 1.0, (s0 + i * 0.5 - lat) / (double) n), 1.35);
                     double hz = fc;
                     switch (m.mode)
                     {
@@ -546,13 +592,21 @@ namespace
                         case 2: hz = std::exp (std::log (fc) + std::log (8.0) * t); break;
                         default: break;
                     }
-                    f.set (c.sampleRate, hz, k);
+                    for (auto& f : filters) f.set (osRate, hz, k);
                 }
-                float lp, bp, hp;
-                f.process (d[i], lp, bp, hp);
-                d[i] = (m.mode == 0 || m.mode == 3) ? lp : (m.mode == 2 ? bp * (float) k : hp);
+                for (int ch = 0; ch < numCh; ++ch)
+                {
+                    float* d = up.getChannelPointer ((size_t) ch);
+                    float lp, bp, hp;
+                    filters[(size_t) ch].process (d[i], lp, bp, hp);
+                    d[i] = (m.mode == 0 || m.mode == 3) ? lp : (m.mode == 2 ? bp * (float) k : hp);
+                }
             }
+            juce::dsp::AudioBlock<float> outBlock (out.getArrayOfWritePointers(), (size_t) numCh, (size_t) s0, (size_t) len);
+            os.processSamplesDown (outBlock);
         }
+        for (int ch = 0; ch < numCh; ++ch)
+            b.copyFrom (ch, 0, out, ch, lat, n);
         if (m.mode >= 2)
             crossfadeInto (b, dry, 0, juce::jmin (n, (int) (0.015 * c.sampleRate)));
     }

@@ -17,6 +17,8 @@ struct RenderResult
     double sampleRate = 48000.0;
     double samplesPerBeat = 22153.8;
     juce::int64 zoneStart = 0, zoneEnd = 0;
+    float limiterReductionDb = 0.0f;    // how hard the true-peak limiter worked (<= 0)
+    float ceilingDb = -1.0f;
     int version = 0;
 };
 using ResultPtr = std::shared_ptr<const RenderResult>;

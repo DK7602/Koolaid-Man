@@ -96,7 +96,7 @@ Repeats a tiny slice of audio, like a DJ stutter. **Knob = Span** (how much of t
 
 ## Pitch
 
-Bends the pitch of the build without changing its timing. **Semitones** = where the pitch ends up (for example –12 is an octave dive, +12 an octave riser). **Knob = Curve** (low = steady glide, high = most of the bend happens right at the end). Variations: **Ramp**, **Static**.
+Bends the pitch of the build without changing its timing, using a studio-grade spectral pitch shifter. **Semitones** = where the pitch ends up (for example –12 is an octave dive, +12 an octave riser). **Knob = Curve** (low = steady glide, high = most of the bend happens right at the end). Variations: **Ramp**, **Static**.
 
 ## Tape Stop
 
@@ -171,7 +171,9 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - **ZONE + DROP**: from the start of the build to the end of the audio.
 - **FX LAYER**: only the added sounds, to layer on top of your original.
 
-**Formats:** WAV 16-bit, WAV 24-bit, WAV 32-bit float or AIFF 24-bit, at your project's sample rate. After placing the export, bypass or remove Koolaid Man on the track (or turn SYNC TO SESSION off) so you don't hear the preview on top.
+**Formats:** WAV 16-bit, WAV 24-bit, WAV 32-bit float or AIFF 24-bit, at your project's sample rate. 16-bit exports get proper **TPDF dither with noise shaping**, so quiet tails don't turn grainy.
+
+**Levels are handled for you.** Everything a move adds (808s, drum hits, reverb) is matched to your track's own level, no beat of the build can jump more than about 3.5 dB above your original audio, and a **true-peak limiter** keeps the build under -1 dBTP (or under your track's own peak if it's already mastered hotter). The rest of your audio is never touched. After placing the export, bypass or remove Koolaid Man on the track (or turn SYNC TO SESSION off) so you don't hear the preview on top.
 
 # Settings (Gear Menu)
 

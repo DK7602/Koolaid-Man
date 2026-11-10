@@ -1,20 +1,11 @@
 #include "DropRenderer.h"
 #include "DrumDetector.h"
 #include "MoveProcessors.h"
+#include "Mastering.h"
 
 namespace km
 {
 
-namespace
-{
-    inline float softLimit (float x)
-    {
-        const float a = std::abs (x);
-        if (a <= 0.85f) return x;
-        const float y = 0.85f + 0.15f * std::tanh ((a - 0.85f) / 0.15f);
-        return x < 0 ? -y : y;
-    }
-}
 
 ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
 {
@@ -128,18 +119,32 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         }
     }
 
-    // write the zone back: processed music + fx layer, with a soft safety limiter
-    const int dropFade = juce::jmin (n, 64);
+    // write the zone back: processed music + fx layer
     for (int ch = 0; ch < 2; ++ch)
     {
         auto* out = res->mix.getWritePointer (ch, (int) res->zoneStart);
         auto* m = main.getReadPointer (ch);
         auto* f = fx.getReadPointer (ch);
         for (int i = 0; i < n; ++i)
-            out[i] = softLimit (m[i] + f[i]);
+            out[i] = m[i] + f[i];
         res->fx.copyFrom (ch, (int) res->zoneStart, fx, ch, 0, n);
+    }
 
-        // micro fades either side of the drop so the hit lands without a click
+    // True-peak limiting: -1 dBTP, or the track's own true peak if it is already mastered
+    // hotter (never above -0.1 dBTP), so the build matches the audio around it.
+    {
+        const float origTp = measureTruePeak (original, 0, n, sr);
+        const float ceiling = juce::jlimit (juce::Decibels::decibelsToGain (-1.0f), juce::Decibels::decibelsToGain (-0.1f), origTp);
+        res->limiterReductionDb = truePeakLimit (res->mix, (int) res->zoneStart, n, sr, ceiling);
+        truePeakLimit (res->fx, (int) res->zoneStart, n, sr, ceiling);
+        res->ceilingDb = juce::Decibels::gainToDecibels (ceiling);
+    }
+
+    // micro fades either side of the drop so the hit lands without a click
+    const int dropFade = juce::jmin (n, 64);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        auto* out = res->mix.getWritePointer (ch, (int) res->zoneStart);
         for (int i = 0; i < dropFade; ++i)
             out[n - dropFade + i] *= (float) (dropFade - i) / dropFade;
         if (res->zoneEnd + 24 < total)
