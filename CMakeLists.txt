@@ -61,6 +61,7 @@ juce_add_plugin(KoolaidMan
     COMPANY_NAME                "Koolaid Man"
     PRODUCT_NAME                "Koolaid Man"
     BUNDLE_ID                   "com.koolaidman.beatdrop"
+    ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png"
     PLUGIN_MANUFACTURER_CODE    Kool
     PLUGIN_CODE                 KmBd
     FORMATS                     VST3 AU Standalone

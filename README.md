@@ -1,3 +1,5 @@
+<img src="resources/icon.png" width="128" align="right" alt="Koolaid Man icon">
+
 # Koolaid Man — Beat-Drop Creator
 
 A beat-drop creator plug-in (VST3 / AU / Standalone) for producers working with two-tracks.

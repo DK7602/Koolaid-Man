@@ -24,6 +24,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 WizardStyle=modern
+SetupIconFile=..\resources\icon.ico
+UninstallDisplayIcon={app}\KoolaidMan.ico
 UninstallDisplayName=Koolaid Man (Beat-Drop Creator)
 CloseApplications=yes
 ; a plug-in's code file ends in .vst3 - include it so Setup notices a DAW (or the plug-in
@@ -45,10 +47,11 @@ Name: "standalone"; Description: "Standalone app (no DAW needed)"; Types: full
 Source: "{#SourceDir}\Koolaid Man.vst3\*"; DestDir: "{commoncf64}\VST3\Koolaid Man.vst3"; Flags: recursesubdirs createallsubdirs ignoreversion restartreplace uninsrestartdelete; Components: vst3
 Source: "{#SourceDir}\Koolaid Man.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete; Components: standalone
 Source: "{#SourceDir}\INSTALL.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\resources\icon.ico"; DestDir: "{app}"; DestName: "KoolaidMan.ico"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Koolaid Man"; Filename: "{app}\Koolaid Man.exe"; Components: standalone
-Name: "{group}\Koolaid Man - Quick Start"; Filename: "{app}\INSTALL.txt"
+Name: "{group}\Koolaid Man - Quick Start"; Filename: "{app}\INSTALL.txt"; IconFilename: "{app}\KoolaidMan.ico"
 Name: "{group}\Uninstall Koolaid Man"; Filename: "{uninstallexe}"
 
 [Run]
