@@ -33,7 +33,7 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     for (auto& m : model.moves)
         if (m.enabled && playsAfterDrop (m.type))
         {
-            const double endBeats = m.customRegion ? juce::jmax (0.25, m.regionEnd) : afterDropTailBeats (m, model.beatsPerBar());
+            const double endBeats = m.customRegion ? juce::jmax (0.25, m.regionEnd) : afterDropTailBeats (m, model.beatsPerBar(), model.bpm);
             tail = juce::jmax (tail, (int) std::llround (endBeats * spb));
         }
     int total = clipLen;

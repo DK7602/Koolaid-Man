@@ -525,7 +525,20 @@ namespace
 
     enum class ValueKind { none, division, semitones };
 
-    juce::String divisionText (int d) { return km::divisions()[(size_t) juce::jlimit (0, 8, d)].label; }
+    /** Scroll-wheel step for a length / rate box: note values, or seconds when the move is in seconds. */
+    void stepLength (km::Move& m, float dy)
+    {
+        if (m.inSeconds && km::moveHasLength (m.type))
+        {
+            const auto& c = km::secondsChoices();
+            int idx = 0;
+            for (int i = 0; i < (int) c.size(); ++i) if (std::abs (c[(size_t) i] - m.seconds) < std::abs (c[(size_t) idx] - m.seconds)) idx = i;
+            m.seconds = c[(size_t) juce::jlimit (0, (int) c.size() - 1, idx + (dy > 0 ? 1 : -1))];
+        }
+        else
+            m.division = juce::jlimit (0, 8, m.division + (dy > 0 ? 1 : -1));
+    }
+
     juce::String semiText (int s)     { return s > 0 ? "+" + juce::String (s) : (s < 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x93")) + juce::String (-s) : "0"); }
     const int semitoneChoices[] = { 24, 19, 12, 7, 5, 3, 2, 1, -1, -2, -3, -5, -7, -12, -19, -24 };
 }
@@ -646,7 +659,7 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
             {
                 auto& m = target (card->type);
                 if (card->kind == ValueKind::division)
-                    m.division = juce::jlimit (0, 8, m.division + (dy > 0 ? 1 : -1));
+                    stepLength (m, dy);
                 else
                 {
                     int idx = 0;
@@ -775,7 +788,7 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
         c->artValue->onWheel = [this, card] (float dy)
         {
             auto& m = target (card->type);
-            m.division = juce::jlimit (0, 8, m.division + (dy > 0 ? 1 : -1));
+            stepLength (m, dy);
             if (onEdited) onEdited();
             if (onStackChanged) onStackChanged();
             refresh();
@@ -1029,8 +1042,21 @@ void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
         const auto ty = card.type;
         menu.addSectionHeader (ty == MoveType::DelayThrow ? "ECHO TIME"
                                : (ty == MoveType::Chops || ty == MoveType::Stutter || ty == MoveType::Pump ? "RATE" : "LENGTH"));
+        const bool secs = m.inSeconds && km::moveHasLength (ty);
         for (int i = 0; i < (int) km::divisions().size(); ++i)
-            menu.addItem (1 + i, km::divisions()[(size_t) i].longLabel, true, m.division == i);
+            menu.addItem (1 + i, km::divisions()[(size_t) i].longLabel, true, ! secs && m.division == i);
+        if (km::moveHasLength (ty))
+        {
+            // tempo-free: the same length whatever the tempo (handy for intros and FX)
+            menu.addSectionHeader ("SECONDS");
+            const auto& c = km::secondsChoices();
+            for (int i = 0; i < (int) c.size(); ++i)
+            {
+                const float v = c[(size_t) i];
+                menu.addItem (500 + i, juce::String (v, v < 1.0f ? 2 : (v == std::floor (v) ? 0 : 1)) + " sec", true,
+                              secs && std::abs (m.seconds - v) < 1.0e-3f);
+            }
+        }
     }
     else
     {
@@ -1044,8 +1070,15 @@ void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
         if (r == 0) return;
         auto& mv = target (t);
         if (r >= 1000) mv.semitones = r - 1100;
+        else if (r >= 500)
+        {
+            mv.inSeconds = true;
+            mv.seconds = km::secondsChoices()[(size_t) juce::jlimit (0, (int) km::secondsChoices().size() - 1, r - 500)];
+            mv.customRegion = false;
+        }
         else
         {
+            mv.inSeconds = false;
             mv.division = r - 1;
             // a new length means "use my natural spot" again (a new rate / echo time doesn't)
             if (t != MoveType::Chops && t != MoveType::Stutter && t != MoveType::Pump && t != MoveType::DelayThrow)
@@ -1086,9 +1119,10 @@ void EffectCards::refresh()
             if (c->knob2 && ! c->knob2->isDragging()) c->knob2->setValue (m.knob2);
         }
         if (c->value)
-            c->value->setText (c->kind == ValueKind::semitones ? semiText (m.semitones) : divisionText (m.division));
+            c->value->setText (c->kind == ValueKind::semitones ? semiText (m.semitones) : km::moveLengthText (m, false));
         if (c->artValue)
-            c->artValue->setText (juce::String (km::divisions()[(size_t) juce::jlimit (0, 8, m.division)].longLabel).toUpperCase());
+            c->artValue->setText (m.inSeconds && km::moveHasLength (m.type) ? km::moveLengthText (m, false)
+                                                                            : juce::String (km::divisions()[(size_t) juce::jlimit (0, 8, m.division)].longLabel).toUpperCase());
         if (c->artMode)
         {
             const auto names = km::modeNames (c->type);

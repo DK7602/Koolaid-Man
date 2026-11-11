@@ -28,11 +28,13 @@ struct MoveContext
     // Timeline: when >= 0 the move fills exactly this many beats (its slice) instead of
     // working out its own length from its settings.
     double lengthOverride = -1.0;
+
+    double bpm() const { return 60.0 * sampleRate / juce::jmax (1.0, samplesPerBeat); }
 };
 
 /** Where a move acts, in beats relative to the drop: its custom timeline region, or its
     natural spot (e.g. a Tape Stop over the last 1/2 bar). zoneBeats = build zone length. */
-std::pair<double, double> moveRegion (const Move&, double zoneBeats, double beatsPerBar);
+std::pair<double, double> moveRegion (const Move&, double zoneBeats, double beatsPerBar, double bpm);
 
 /** Applies one move to the zone. 'main' is the processed music, 'fx' is the
     generated layer (drum fills, 808s, hats, reverb). Both are the zone's length. */
@@ -42,7 +44,7 @@ void applyMove (const Move&, const MoveContext&, juce::AudioBuffer<float>& main,
 void renderAfterDrop (const Move&, const MoveContext&, juce::AudioBuffer<float>& post);
 
 /** How far past the drop an after-drop move rings (in beats). */
-double afterDropTailBeats (const Move&, double beatsPerBar);
+double afterDropTailBeats (const Move&, double beatsPerBar, double bpm);
 
 double stutterSpanBeats (float knob, double beatsPerBar);
 double filterCutoff (float knob);

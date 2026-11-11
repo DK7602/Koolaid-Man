@@ -73,6 +73,15 @@ struct Division
 const std::vector<Division>& divisions();
 double divisionToBeats (int index, double beatsPerBar);
 
+/** Moves whose second box is a length (rather than a rate), so it can also be set in seconds. */
+bool moveHasLength (MoveType);
+/** A move's length in beats: its note value, or its seconds at this tempo. */
+double moveLengthBeats (const struct Move&, double beatsPerBar, double bpm);
+/** "1/2 BAR", "2 BARS" or "1.5 SEC" style text for a move's length box. */
+juce::String moveLengthText (const struct Move&, bool longForm);
+/** The choices offered in seconds. */
+const std::vector<float>& secondsChoices();
+
 //==============================================================================
 struct Move
 {
@@ -105,6 +114,10 @@ struct Move
     // The audio lives in DropModel::samples (and in the project); presets keep the file path.
     juce::String sampleId, sampleName, samplePath;
     bool hasSample() const { return sampleId.isNotEmpty(); }
+
+    // Length in seconds instead of note values (tempo-free), for moves with a length
+    bool inSeconds = false;
+    float seconds = 2.0f;
 
     // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
     int curve = 0;

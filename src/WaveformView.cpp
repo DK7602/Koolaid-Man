@@ -123,7 +123,7 @@ void WaveformView::zoomToZone()
     double after = 0.5 * bpb;
     for (auto& mv : m.moves)
         if (km::playsAfterDrop (mv.type))
-            after = juce::jmax (after, km::moveRegion (mv, m.zoneEnd - m.zoneStart, bpb).second + 0.25 * bpb);
+            after = juce::jmax (after, km::moveRegion (mv, m.zoneEnd - m.zoneStart, bpb, m.bpm).second + 0.25 * bpb);
     const double a = juce::jmax (0.0, m.zoneStart - 0.5 * bpb);
     const double b = juce::jmin (total, m.zoneEnd + after);
     if (b - a < 1.0) return;
@@ -476,7 +476,7 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
         if (laneDrag.index >= 0)
         {
             const auto& mv = m.moves[(size_t) laneDrag.index];
-            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar(), m.bpm);
             laneDragStartBeat = xToBeat (e.position.x);
             laneDragStart = reg.first;
             laneDragEnd = reg.second;
@@ -701,7 +701,7 @@ juce::Rectangle<float> WaveformView::laneBar (int index) const
 {
     const auto& m = proc.getModel();
     const auto& mv = m.moves[(size_t) index];
-    const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+    const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar(), m.bpm);
     const float lh = laneHeight();
     const float y = laneArea().getY() + (float) (index - laneScroll) * lh;
     const float x0 = beatToX (m.zoneEnd + reg.first), x1 = beatToX (m.zoneEnd + reg.second);
@@ -781,7 +781,7 @@ void WaveformView::drawLanes (juce::Graphics& g)
         if (km::moveHasPattern (mv.type) && mv.patternOn)
         {
             const double stepBeats = km::divisionToBeats (mv.division, m.beatsPerBar());
-            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar(), m.bpm);
             const double b0 = m.zoneEnd + reg.first, b1 = m.zoneEnd + reg.second;
             if (stepBeats > 0.0 && beatToX (b0 + stepBeats) - beatToX (b0) >= 2.0f)
             {

@@ -27,6 +27,45 @@ double divisionToBeats (int index, double beatsPerBar)
     return w < 0 ? -w * beatsPerBar : w * 4.0;
 }
 
+bool moveHasLength (MoveType t)
+{
+    switch (t)
+    {
+        case MoveType::Reverse: case MoveType::TapeStop: case MoveType::Riser: case MoveType::RevCrash:
+        case MoveType::Gap: case MoveType::Impact: case MoveType::Boom: case MoveType::Bitcrush:
+        case MoveType::Phaser: case MoveType::Width: case MoveType::Scratch: case MoveType::PreVerb:
+            return true;
+        default: break;
+    }
+    return false;
+}
+
+double moveLengthBeats (const Move& m, double beatsPerBar, double bpm)
+{
+    if (m.inSeconds && moveHasLength (m.type))
+        return juce::jmax (0.01, (double) m.seconds) * juce::jmax (1.0, bpm) / 60.0;
+    return divisionToBeats (m.division, beatsPerBar);
+}
+
+const std::vector<float>& secondsChoices()
+{
+    static const std::vector<float> c { 0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 12.0f, 16.0f };
+    return c;
+}
+
+juce::String moveLengthText (const Move& m, bool longForm)
+{
+    if (m.inSeconds && moveHasLength (m.type))
+    {
+        const float v = m.seconds;
+        const juce::String num = std::abs (v - std::round (v)) < 1.0e-3f ? juce::String ((int) std::round (v)) : juce::String (v, v < 1.0f ? 2 : 1);
+        return num + (longForm ? " s" : " SEC");
+    }
+    const auto& d = divisions();
+    const auto& e = d[(size_t) juce::jlimit (0, (int) d.size() - 1, m.division)];
+    return longForm ? juce::String (e.longLabel) : juce::String (e.label);
+}
+
 const juce::StringArray& atmosTypeNames()
 {
     static const juce::StringArray names { "Hall", "Cathedral", "Shimmer", "Cloud", "Plate", "Deep Space", "Reverse Swell" };
@@ -236,7 +275,7 @@ double shapeCurve (const Move& m, double t, double autoPow)
 juce::String Move::stackLabel() const
 {
     const auto& d = divisions();
-    const juce::String div = d[(size_t) juce::jlimit (0, (int) d.size() - 1, division)].longLabel;
+    const juce::String div = moveLengthText (*this, true);
     const auto modes = modeNames (type);
     const juce::String modeName = modes[juce::jlimit (0, juce::jmax (0, modes.size() - 1), mode)];
     const juce::String sampleLabel = "\"" + (sampleName.length() > 14 ? sampleName.substring (0, 13) + "..." : sampleName) + "\"";
@@ -368,6 +407,11 @@ juce::ValueTree Move::toTree() const
         t.setProperty ("tensionLink", true, nullptr);
     if (locked)
         t.setProperty ("locked", true, nullptr);
+    if (inSeconds)
+    {
+        t.setProperty ("inSeconds", true, nullptr);
+        t.setProperty ("seconds", seconds, nullptr);
+    }
     if (sampleId.isNotEmpty())
     {
         t.setProperty ("sampleId", sampleId, nullptr);
@@ -403,6 +447,8 @@ Move Move::fromTree (const juce::ValueTree& t)
     m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
     m.tensionLink = t.getProperty ("tensionLink", false);
     m.locked = t.getProperty ("locked", false);
+    m.inSeconds = t.getProperty ("inSeconds", false);
+    m.seconds = juce::jlimit (0.05f, 60.0f, (float) t.getProperty ("seconds", 2.0f));
     m.sampleId = t.getProperty ("sampleId").toString();
     m.sampleName = t.getProperty ("sampleName").toString();
     m.samplePath = t.getProperty ("samplePath").toString();
@@ -431,7 +477,8 @@ bool Move::operator== (const Move& o) const
         && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed
         && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd))
         && curve == o.curve && (curve != curveCustom || curvePoints == o.curvePoints) && tensionLink == o.tensionLink && locked == o.locked
-        && patternOn == o.patternOn && pattern == o.pattern && sampleId == o.sampleId;
+        && patternOn == o.patternOn && pattern == o.pattern && sampleId == o.sampleId
+        && inSeconds == o.inSeconds && (! inSeconds || seconds == o.seconds);
 }
 
 juce::String keyName (int tonic, bool minor)

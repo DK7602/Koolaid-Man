@@ -84,6 +84,13 @@ public:
                 editor.refreshForSnapshot();
                 editor.showCardPage (1);
             }
+            if (args.contains ("seconds"))
+            {
+                for (auto& mv : proc->getModel().moves)
+                    if (mv.type == km::MoveType::TapeStop) { mv.inSeconds = true; mv.seconds = 1.5f; }
+                proc->modelChanged (true);
+                editor.refreshForSnapshot();
+            }
             if (args.contains ("livepads"))
             {
                 editor.showCardPage (3);

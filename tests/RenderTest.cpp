@@ -385,7 +385,7 @@ int main (int argc, char** argv)
         if (before > 1.0e-6 || after > 1.0e-6 || inside < 1.0e-3) { std::cout << "FAIL: timed move leaked outside its slice\n"; ++failures; }
 
         // natural regions: a Tape Stop's default spot is the last 1/2 bar
-        const auto nat = moveRegion (defaultMove (MoveType::TapeStop), 12.0, 4.0);
+        const auto nat = moveRegion (defaultMove (MoveType::TapeStop), 12.0, 4.0, bpm);
         if (std::abs (nat.first + 2.0) > 1.0e-9 || std::abs (nat.second) > 1.0e-9) { std::cout << "FAIL: natural region\n"; ++failures; }
 
         // a timed Impact lands where it was put (2 beats after the drop)
@@ -761,6 +761,36 @@ int main (int argc, char** argv)
         if (! onGrid || ! nonSilent) { std::cout << "FAIL: dither\n"; ++failures; }
     }
 
+    // ---- lengths in seconds: the same length whatever the tempo
+    {
+        for (double tempo : { 130.0, 90.0 })
+        {
+            DropModel m = model;
+            m.bpm = tempo;
+            Move t = defaultMove (MoveType::TapeStop);
+            t.inSeconds = true;
+            t.seconds = 1.0f;
+            m.moves = { t };
+            auto r = renderDrop (m, analysis, 1);
+            juce::int64 first = -1;
+            for (juce::int64 p = r->zoneStart; p < r->zoneEnd && first < 0; ++p)
+                if (std::abs (r->mixAt (0, p) - clip->audio.getSample (0, (int) p)) > 1.0e-4f) first = p;
+            const double secs = (double) (r->zoneEnd - first) / sr;
+            std::cout << "tape stop set to 1.0 s at " << tempo << " bpm lasts " << juce::String (secs, 3) << " s\n";
+            if (std::abs (secs - 1.0) > 0.01) { std::cout << "FAIL: seconds length at " << tempo << " bpm\n"; ++failures; }
+            const auto reg = moveRegion (t, m.zoneEnd - m.zoneStart, m.beatsPerBar(), tempo);
+            if (std::abs (-reg.first * 60.0 / tempo - 1.0) > 1.0e-6) { std::cout << "FAIL: timeline region in seconds\n"; ++failures; }
+        }
+        Move imp = defaultMove (MoveType::Impact);
+        imp.inSeconds = true;
+        imp.seconds = 3.0f;
+        if (std::abs (afterDropTailBeats (imp, 4.0, 120.0) - 6.0) > 1.0e-6) { std::cout << "FAIL: impact tail in seconds\n"; ++failures; }
+        Move chop = defaultMove (MoveType::Chops);
+        chop.inSeconds = true;   // rates ignore seconds
+        if (std::abs (moveLengthBeats (chop, 4.0, 120.0) - divisionToBeats (chop.division, 4.0)) > 1.0e-9) { std::cout << "FAIL: rate moves must stay musical\n"; ++failures; }
+        std::cout << "labels: " << moveLengthText (imp, true) << " / " << imp.stackLabel() << "\n";
+    }
+
     // ---- LIVE PADS (real-time engine)
     {
         const double lbpm = 120.0, spbL = 60.0 * sr / lbpm;
@@ -925,6 +955,10 @@ int main (int argc, char** argv)
         pat.patternOn = true;
         pat.pattern = 0x4949u;
         moves.push_back (pat);
+        Move secs = defaultMove (MoveType::Riser);
+        secs.inSeconds = true;
+        secs.seconds = 1.5f;
+        moves.push_back (secs);
         auto back = movesFromTree (movesToTree (moves));
         if (back.size() != moves.size()) { std::cout << "FAIL moves round trip\n"; ++failures; }
         for (size_t i = 0; i < juce::jmin (back.size(), moves.size()); ++i)

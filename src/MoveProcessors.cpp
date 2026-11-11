@@ -341,7 +341,7 @@ namespace
     void doReverse (const Move& m, const MoveContext& c, Buffer& b, bool isFx)
     {
         const int n = b.getNumSamples();
-        int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         if (m.mode == 2) L = n;
         if (L < 64) return;
         const int start = n - L;
@@ -570,7 +570,7 @@ namespace
     void doTapeStop (const Move& m, const MoveContext& c, Buffer& b)
     {
         const int n = b.getNumSamples();
-        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        const int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         if (L < 128) return;
         const int start = n - L;
         const double p = juce::jmap ((double) m.knob, 0.55, 2.6);
@@ -1021,7 +1021,7 @@ namespace
     void doSampleIntoDrop (const Move& m, const MoveContext& c, Buffer& fx, bool reverse)
     {
         const int n = fx.getNumSamples();
-        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        const int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         Buffer smp = trimmedSample (*c.userSample, true);
         if (L < 256 || smp.getNumSamples() < 64) return;
         if (reverse)
@@ -1049,7 +1049,7 @@ namespace
     {
         if (c.userSample != nullptr) { doSampleIntoDrop (m, c, fx, false); return; }
         const int n = fx.getNumSamples();
-        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        const int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         if (L < 256) return;
         const double sr = c.sampleRate;
         Buffer layer (2, L);
@@ -1108,7 +1108,7 @@ namespace
     {
         if (c.userSample != nullptr) { doSampleIntoDrop (m, c, fx, true); return; }
         const int n = fx.getNumSamples();
-        int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         if (m.mode == 1) L = juce::jmin (L, toSamples (2.0, c));
         if (L < 256) return;
         const double decay = (L / c.sampleRate) * (m.mode == 2 ? 0.55 : 0.35);
@@ -1165,7 +1165,7 @@ namespace
     void doGap (const Move& m, const MoveContext& c, Buffer& main)
     {
         const int n = main.getNumSamples();
-        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        const int L = juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
         if (L < 64) return;
         const int start = n - L;
         const int fade = juce::jmin (L / 3, (int) (0.006 * c.sampleRate) + 1);
@@ -1273,7 +1273,7 @@ namespace
 
     int moveLength (const Move& m, const MoveContext& c, int n)
     {
-        return juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        return juce::jmin (n, toSamples (regionLen (moveLengthBeats (m, c.beatsPerBar, c.bpm()), c), c));
     }
 
     void fadeOutEnd (Buffer& b, int start, int len, int fade)
@@ -1791,9 +1791,9 @@ namespace
 }
 
 //==============================================================================
-double afterDropTailBeats (const Move& m, double bpb)
+double afterDropTailBeats (const Move& m, double bpb, double bpm)
 {
-    const double beats = divisionToBeats (m.division, bpb);
+    const double beats = moveLengthBeats (m, bpb, bpm);
     return m.type == MoveType::Impact ? juce::jmax (bpb, beats) : juce::jmax (bpb * 0.5, beats);
 }
 
@@ -1801,7 +1801,7 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
 {
     if (! m.enabled || ! playsAfterDrop (m.type)) return;
     const double sr = c.sampleRate;
-    const double tailBeats = c.lengthOverride >= 0.0 ? c.lengthOverride : afterDropTailBeats (m, c.beatsPerBar);
+    const double tailBeats = c.lengthOverride >= 0.0 ? c.lengthOverride : afterDropTailBeats (m, c.beatsPerBar, c.bpm());
     const int T = juce::jmin (post.getNumSamples(), (int) std::llround (tailBeats * c.samplesPerBeat));
     if (T < 256) return;
     const float level = 0.45f + 0.65f * m.knob;
@@ -1915,11 +1915,11 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
     addMatched (post, hit, 0, 0, firstHalfSec, c.refRms * 1.4f * level);
 }
 
-std::pair<double, double> moveRegion (const Move& m, double Z, double bpb)
+std::pair<double, double> moveRegion (const Move& m, double Z, double bpb, double bpm)
 {
     if (m.customRegion)
         return { m.regionStart, m.regionEnd };
-    const double L = divisionToBeats (m.division, bpb);
+    const double L = moveLengthBeats (m, bpb, bpm);
     const auto last = [Z] (double len) { return std::make_pair (-juce::jmin (Z, len), 0.0); };
     switch (m.type)
     {
@@ -1939,7 +1939,7 @@ std::pair<double, double> moveRegion (const Move& m, double Z, double bpb)
         case MoveType::Bass808:   return last (m.mode == 0 ? bpb * 0.5 : bpb);
         case MoveType::Hats:      return last (4.0 * bpb);
         case MoveType::Impact:
-        case MoveType::Boom:      return { 0.0, afterDropTailBeats (m, bpb) };
+        case MoveType::Boom:      return { 0.0, afterDropTailBeats (m, bpb, bpm) };
         default:                  return last (Z);   // chops, pitch, filter, atmos, pump: the whole build
     }
 }

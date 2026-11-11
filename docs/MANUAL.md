@@ -78,6 +78,8 @@ Everything outside the zone stays exactly as it was. Some moves (like **Reverse 
 
 **Curves.** Moves that build over time (pitch rise, filter sweep, reverb wash, riser, rising pump, snare fill/roll, hat roll, 808 slide/swell) have a **Curve** in their drop-down menu: **Auto** (the move's own shape), **Linear**, **Ease In** (slow start, fast finish), **Ease Out**, **S-Curve**, **Late Rush** (almost everything in the last moments) or **Steps**. Pick **Custom - Draw It...** to draw your own curve with the mouse (presets in the editor give you a starting point; **Done** or Esc closes it). The TIMELINE draws each move's curve inside its lane.
 
+**Lengths in beats or seconds.** Any move with a **Length** (or Time / Tail) box can be set in **seconds** instead of note values: click the box and pick from the **SECONDS** list at the bottom (0.25 to 16 seconds). A length in seconds stays the same whatever the tempo, which is handy for tempo-free intros, ambient builds or a riser that must last exactly 4 seconds. Pick a note value again to go back to beats. Rates (Chops, Stutter, Pump and the echo time) always stay locked to the beat.
+
 You can use the same move more than once. For example, two filters, or a short reverse plus a long one.
 
 # The Timeline

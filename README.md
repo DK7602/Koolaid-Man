@@ -83,6 +83,8 @@ the drop, crashes are reversed into it, impacts hit on the downbeat. Samples are
 | **Vinyl Scratch** | Speed · Length | Baby Scratch, Rewind, Brake |
 | **Pre-Verb** | Level · Length | Downbeat, Drop Bar, Snare (the drop's own hit, reverb-swelled in reverse) |
 
+Any length (riser, tape stop, gap, tails and so on) can also be set in **seconds** for tempo-free builds.
+
 **LIVE PADS** (4th tab): eight real-time gestures you perform on top of the track while the DAW plays
 (Stutter, Roll, Filter, Riser, Tape Stop, Echo Out, Wash, Cut), all tempo-synced. Hold them on screen,
 trigger them from MIDI notes C1–G1 (route a MIDI track to Koolaid Man), or automate the "Live" parameters.
