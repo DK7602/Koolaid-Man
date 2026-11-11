@@ -14,7 +14,7 @@ public:
     ~EffectCards();
 
     void refresh();
-    void setPage (int);          // 0 = main moves, 1 = build & drop, 2 = fx moves
+    void setPage (int);          // 0 = main moves, 1 = build & drop, 2 = fx moves, 3 = live pads
     int getPage() const { return page; }
     void followSelection();      // shows the page of the selected stack move
     std::function<void()> onPageChanged;
@@ -44,6 +44,7 @@ private:
     MoveStackView& stack;
     std::vector<std::unique_ptr<Card>> cards;
     std::unique_ptr<juce::Component> page2Panel;
+    std::unique_ptr<juce::Component> livePanel;
     std::vector<std::unique_ptr<juce::Component>> tabs;
     int page = 0;
 };

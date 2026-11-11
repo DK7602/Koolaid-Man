@@ -82,7 +82,7 @@ You can use the same move more than once. For example, two filters, or a short r
 
 # The Timeline
 
-Click the **TIMELINE** tab above the waveform to see **one colored lane per move**, in the move's card color. The view zooms to the build zone. Each lane shows *when* that move happens.
+Click the **TIMELINE** tab above the waveform to see **one colored lane per move**, in the move's card color. The view zooms to the build zone. Each lane shows when that move happens.
 
 - A **dashed, see-through lane** is on **auto**: the move uses its natural spot (a Tape Stop over the last 1/2 bar, a filter sweep over the whole build, and so on).
 - **Drag a lane** to move it, or **drag its left or right edge** to change where it starts and ends. It turns solid, and the move now works exactly inside that range. For example, stutter only the second bar, put the riser on the last bar, or land the Impact a beat after the drop. Lanes snap to the grid; hold **Shift** for free movement.
@@ -168,7 +168,7 @@ A crash cymbal played backwards, so it swells right into the downbeat. Types: **
 
 ## Sidechain Pump
 
-Ducks the build in time with the beat, like a kick-triggered sidechain compressor. **Depth** sets how hard it ducks, **Rate** sets how often. Types: **Smooth**, **Hard**, **Rising** (starts gentle and gets deeper toward the drop) and **Follow Kick**, which ducks every time *your* kick or 808 hits (found by Detection), so the pump breathes with the real groove instead of a fixed grid. With Follow Kick, **Rate** sets how long it takes to recover.
+Ducks the build in time with the beat, like a kick-triggered sidechain compressor. **Depth** sets how hard it ducks, **Rate** sets how often. Types: **Smooth**, **Hard**, **Rising** (starts gentle and gets deeper toward the drop) and **Follow Kick**, which ducks every time your own kick or 808 hits (found by Detection), so the pump breathes with the real groove instead of a fixed grid. With Follow Kick, **Rate** sets how long it takes to recover.
 
 ## Drop Gap
 
@@ -182,7 +182,7 @@ A hit plus a crash on the **downbeat of the drop**. **Tail** sets how long it ri
 
 A deep sub drop on the downbeat. Types: **Deep**, **Punchy** and **Long Dive**.
 
-**Impact** and **Sub Boom** play *after* the drop. If your audio ends right at the drop, Koolaid Man adds a tail (rounded up to whole bars) so you still hear them, and the export includes it.
+**Impact** and **Sub Boom** play after the drop. If your audio ends right at the drop, Koolaid Man adds a tail (rounded up to whole bars) so you still hear them, and the export includes it.
 
 ## Your own samples
 
@@ -245,6 +245,33 @@ Turntable moves on the end of the build. **Speed** changes each one:
 
 The **drop's own first hit**, played through a big reverb and then backwards, so it swells up and sucks right into the drop. Because it's made from your drop, it always fits the song. Types: **Downbeat** (the first beat of the drop), **Drop Bar** (the drop's whole first bar, a softer, bigger swell) and **Snare** (the snare found by Detection). **Level** sets how loud it gets, **Length** sets how long it swells. If your audio ends right at the drop, it uses the last downbeat of the build instead.
 
+# Live Pads (Page 4)
+
+Click **LIVE PADS** in the cards panel's title bar. These eight pads are **real-time** drop moves. You perform them on top of your track while your DAW plays, instead of rendering them into the build. Everything locks to your session's tempo.
+
+What each pad does while you hold it:
+
+- **STUTTER** (MIDI C1): Repeats the 1/8 note you're in, locked to the beat.
+- **ROLL** (MIDI C#1): A stutter that rolls faster every beat you hold it: 1/16, 1/32, 1/64.
+- **FILTER** (MIDI D1): Low-pass sweep down over 2 bars; opens back up when you let go.
+- **RISER** (MIDI D#1): High-pass sweep up plus a rising noise riser.
+- **TAPE STOP** (MIDI E1): The tape slows to a stop over one beat; let go to bring the track back.
+- **ECHO OUT** (MIDI F1): Throws that moment into dotted-1/8 ping-pong echoes and drops the track out under them.
+- **WASH** (MIDI F#1): A huge reverb swells up, then rings out when you let go.
+- **CUT** (MIDI G1): Silence (the breath before the drop). Echo and reverb tails keep ringing through it.
+
+Pads can be combined. For example, hold **WASH** for a bar, then hit **CUT** right before the drop: the reverb tail rings into the silence.
+
+## Three ways to play them
+
+- **Click and hold** a pad on screen.
+- **MIDI notes C1 to G1** (notes 36 to 43). Velocity sets how hard the pad hits. In Cubase: add a MIDI track and set its **output** to **Koolaid Man** (it shows up in the MIDI output list once Koolaid Man is on an audio track). Draw notes on the grid for perfectly timed gestures, or play them from a pad controller with the track record-enabled.
+- **Automation**: each pad is also a parameter (**Live Stutter**, **Live Roll**, and so on). Draw them in an automation lane. If you click the on-screen pads with the track's automation in **Write** mode, Cubase records your performance as automation.
+
+## Keeping the result
+
+Live pads change the audio coming out of the plug-in as it plays, so use your DAW to print it: in Cubase, **Render in Place** the track (or **Export > Audio Mixdown**). When no pad is held, Koolaid Man passes your audio through untouched.
+
 # Detection
 
 Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and finds the **snare**, the **808/kick** and the **hi-hats**. Their exact hits are used by Drum Moves, 808 Detect and Hat Detect.
@@ -300,7 +327,7 @@ The **A** and **B** buttons next to the TIMELINE tab hold two completely separat
 
 ## Build Amount (automate it!)
 
-**Build Amount** is a parameter you can automate in your DAW (in Cubase, show the track's automation and pick *Build Amount*). At **100%** you hear the full drop; at **0%** you hear your original audio. In between, it blends smoothly, live while it plays. Ride it to bring the build in gradually or to pull it back in places. Exports use the current Build Amount.
+**Build Amount** is a parameter you can automate in your DAW (in Cubase, show the track's automation and pick Build Amount). At **100%** you hear the full drop; at **0%** you hear your original audio. In between, it blends smoothly, live while it plays. Ride it to bring the build in gradually or to pull it back in places. Exports use the current Build Amount.
 
 # Previewing
 

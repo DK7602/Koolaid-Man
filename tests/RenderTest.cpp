@@ -12,6 +12,7 @@
 #include "Mastering.h"
 #include "MoveProcessors.h"
 #include "KeyDetector.h"
+#include "LiveEngine.h"
 
 using namespace km;
 
@@ -758,6 +759,163 @@ int main (int argc, char** argv)
         }
         std::cout << "dither: on 16-bit grid " << (int) onGrid << ", -86 dB tone preserved " << (int) nonSilent << "\n";
         if (! onGrid || ! nonSilent) { std::cout << "FAIL: dither\n"; ++failures; }
+    }
+
+    // ---- LIVE PADS (real-time engine)
+    {
+        const double lbpm = 120.0, spbL = 60.0 * sr / lbpm;
+        const int total = (int) (spbL * 24);   // 6 bars
+        juce::AudioBuffer<float> in (2, total);
+        juce::Random lr (3);
+        for (int i = 0; i < total; ++i)
+        {
+            const double t = i / sr;
+            const float v = 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * (200.0 + 40.0 * t) * t);
+            in.setSample (0, i, v);
+            in.setSample (1, i, v * 0.8f + 0.05f * (lr.nextFloat() - 0.5f));
+        }
+        juce::AudioBuffer<float> noiseIn (2, total);
+        for (int i = 0; i < total; ++i) { noiseIn.setSample (0, i, 0.2f * (lr.nextFloat() * 2 - 1)); noiseIn.setSample (1, i, 0.2f * (lr.nextFloat() * 2 - 1)); }
+
+        struct Ev { double beat; int pad; float value; };
+        auto run = [&] (const juce::AudioBuffer<float>& src, std::vector<Ev> evs, int channels = 2)
+        {
+            LiveEngine le;
+            le.prepare (sr, 512);
+            juce::AudioBuffer<float> out (channels, src.getNumSamples());
+            for (int ch = 0; ch < channels; ++ch) out.copyFrom (ch, 0, src, ch, 0, src.getNumSamples());
+            float held[LiveEngine::numPads] {};
+            std::sort (evs.begin(), evs.end(), [] (const Ev& a, const Ev& b) { return a.beat < b.beat; });
+            size_t e = 0;
+            for (int b0 = 0; b0 < out.getNumSamples(); b0 += 512)
+            {
+                const int b1 = juce::jmin (out.getNumSamples(), b0 + 512);
+                int pos = b0;
+                while (e < evs.size() && (int) std::llround (evs[e].beat * spbL) < b1)
+                {
+                    const int at = juce::jmax (pos, (int) std::llround (evs[e].beat * spbL));
+                    if (at > pos) le.process (out, pos, at - pos, held, lbpm, pos / spbL);
+                    pos = at;
+                    held[evs[e].pad] = evs[e].value;
+                    ++e;
+                }
+                if (b1 > pos) le.process (out, pos, b1 - pos, held, lbpm, pos / spbL);
+            }
+            return out;
+        };
+        auto maxDiff = [&] (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b, int ch, int s0, int s1, int lag = 0)
+        {
+            float d = 0.0f;
+            for (int i = s0; i < s1; ++i) d = juce::jmax (d, std::abs (a.getSample (ch, i) - b.getSample (ch, i - lag)));
+            return d;
+        };
+        auto rmsOfB = [&] (const juce::AudioBuffer<float>& a, int ch, int s0, int s1)
+        {
+            double acc = 0.0;
+            for (int i = s0; i < s1; ++i) acc += (double) a.getSample (ch, i) * a.getSample (ch, i);
+            return std::sqrt (acc / juce::jmax (1, s1 - s0));
+        };
+        auto at = [&] (double beat) { return (int) std::llround (beat * spbL); };
+        int liveFails = 0;
+        auto expect = [&] (bool ok, const juce::String& what) { std::cout << "  live: " << (ok ? "ok    " : "FAIL  ") << what << "\n"; if (! ok) ++liveFails; };
+
+        {   // idle: untouched, bit for bit
+            auto out = run (in, {});
+            expect (maxDiff (out, in, 0, 0, total) == 0.0f && maxDiff (out, in, 1, 0, total) == 0.0f, "no pad held = exact pass-through");
+        }
+        {   // stutter pressed mid-1/8: plays on, then repeats that 1/8 from its grid line
+            auto out = run (in, { { 1.3, LiveEngine::stutter, 1.0f }, { 4.3, LiveEngine::stutter, 0.0f } });
+            const int L = at (0.5), slice = at (1.0), fade = (int) (0.003 * sr);
+            float worst = 0.0f;
+            for (int i = at (1.6); i < at (4.2); ++i)
+            {
+                const int ph = (i - slice) % L;
+                if (ph < fade || ph > L - fade) continue;   // the tiny fades at the loop points
+                worst = juce::jmax (worst, std::abs (out.getSample (0, i) - in.getSample (0, slice + ph)));
+            }
+            expect (worst < 2.0e-3f, "stutter repeats the 1/8 it was pressed in, on the grid (max error " + juce::String (worst, 5) + ")");
+            expect (maxDiff (out, in, 0, at (1.3) - 4, at (1.5) - fade) < 1.0e-3f, "the stutter plays on seamlessly until the grid line");
+            expect (maxDiff (out, in, 0, at (4.3) + (int) (0.05 * sr), at (6.0)) < 1.0e-3f, "back to the track after letting go");
+            expect (maxDiff (out, in, 0, at (8.0), total) == 0.0f, "then exact pass-through again");
+        }
+        {   // roll: gets faster every beat
+            auto out = run (in, { { 2.0, LiveEngine::roll, 1.0f }, { 6.0, LiveEngine::roll, 0.0f } });
+            bool finite = true;
+            for (int i = 0; i < total; ++i) finite &= std::isfinite (out.getSample (0, i));
+            // in the 4th beat held the slice is 1/128 note... the 1/64 cap: period = spb / 16
+            const int L = juce::jmax (32, at (0.25) >> 3), s0 = at (5.2);
+            float worst = 0.0f;
+            const int fade = juce::jmin (L / 4, (int) (0.0015 * sr) + 1);
+            for (int i = s0; i < s0 + 4 * L; ++i)
+            {
+                const int ph = (i - at (2.0)) % L;
+                if (ph < fade + 2 || ph > L - fade - 2) continue;
+                worst = juce::jmax (worst, std::abs (out.getSample (0, i) - out.getSample (0, i - L)));
+            }
+            expect (finite && worst < 2.0e-3f, "roll speeds up to 1/64 repeats (period error " + juce::String (worst, 5) + ")");
+        }
+        {   // tape stop
+            auto out = run (in, { { 2.0, LiveEngine::tapeStop, 1.0f }, { 4.0, LiveEngine::tapeStop, 0.0f } });
+            expect (rmsOfB (out, 0, at (3.1), at (3.9)) < 1.0e-3, "tape stop slows to silence within a beat");
+            expect (rmsOfB (out, 0, at (2.2), at (2.5)) > 0.05, "...playing (slower) on the way down");
+            expect (maxDiff (out, in, 0, at (4.0) + (int) (0.06 * sr), at (6.0)) < 1.0e-3f, "the track comes back when you let go");
+        }
+        {   // cut
+            auto out = run (in, { { 2.0, LiveEngine::cut, 1.0f }, { 3.0, LiveEngine::cut, 0.0f } });
+            expect (rmsOfB (out, 0, at (2.0) + (int) (0.03 * sr), at (3.0)) < 1.0e-4, "cut is silent while held");
+            expect (maxDiff (out, in, 0, at (3.0) + (int) (0.04 * sr), at (5.0)) < 1.0e-3f, "and comes straight back");
+        }
+        {   // echo out: the thrown 1/8 comes back a dotted 1/8 later, left first, then right
+            auto out = run (in, { { 2.0, LiveEngine::echo, 1.0f }, { 4.0, LiveEngine::echo, 0.0f } });
+            const int D = at (0.75);
+            double num = 0, da = 0, db = 0;
+            for (int i = at (2.8); i < at (3.2); ++i)
+            {
+                const double a = out.getSample (0, i), b = 0.5 * (in.getSample (0, i - D) + in.getSample (1, i - D));
+                num += a * b; da += a * a; db += b * b;
+            }
+            const double corr = num / std::sqrt (da * db + 1.0e-20);
+            expect (corr > 0.98, "first echo on the left, a dotted 1/8 later (correlation " + juce::String (corr, 3) + ")");
+            expect (rmsOfB (out, 1, at (2.8), at (3.2)) < 0.02 * rmsOfB (out, 0, at (2.8), at (3.2)), "...and not on the right yet (ping-pong)");
+            expect (rmsOfB (out, 1, at (3.55), at (3.95)) > 0.01, "second echo on the right");
+            expect (rmsOfB (out, 0, at (3.3), at (3.45)) < 0.2 * rmsOfB (in, 0, at (3.3), at (3.45)), "the track drops out under the echoes");
+        }
+        {   // wash: rings on after letting go, then the plug-in goes back to a clean pass-through
+            auto out = run (in, { { 2.0, LiveEngine::wash, 1.0f }, { 6.0, LiveEngine::wash, 0.0f } });
+            juce::AudioBuffer<float> diff (2, total);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < total; ++i) diff.setSample (ch, i, out.getSample (ch, i) - in.getSample (ch, i));
+            const double tail = rmsOfB (diff, 0, at (6.4), at (7.0));
+            expect (tail > 0.005, "the reverb rings out after you let go (" + juce::String (tail, 4) + ")");
+            const double grown = rmsOfB (diff, 0, at (5.5), at (6.0)), early = rmsOfB (diff, 0, at (2.05), at (2.3));
+            expect (grown > early * 2.0, "the wash swells while held");
+        }
+        {   // filter sweep on noise: the top end goes
+            auto out = run (noiseIn, { { 1.0, LiveEngine::filter, 1.0f }, { 9.0, LiveEngine::filter, 0.0f } });
+            auto hfRms = [&] (const juce::AudioBuffer<float>& a, int s0, int s1)
+            {
+                double acc = 0;
+                for (int i = s0 + 1; i < s1; ++i) { const double d = a.getSample (0, i) - a.getSample (0, i - 1); acc += d * d; }
+                return std::sqrt (acc / (s1 - s0));
+            };
+            const double before = hfRms (out, at (0.2), at (0.9)), after = hfRms (out, at (8.5), at (9.0));
+            expect (after < before * 0.1, "filter sweeps the top end away over 2 bars (" + juce::String (after / before, 3) + "x)");
+            expect (maxDiff (out, noiseIn, 0, at (9.0) + (int) (0.4 * sr), at (12.0)) < 1.0e-3f, "and opens back up when you let go");
+        }
+        {   // riser on the tone: noise rises and the lows thin out
+            auto out = run (in, { { 1.0, LiveEngine::riser, 1.0f }, { 9.0, LiveEngine::riser, 0.0f } });
+            juce::AudioBuffer<float> diff (1, total);
+            for (int i = 0; i < total; ++i) diff.setSample (0, i, out.getSample (0, i) - in.getSample (0, i));
+            const double e1 = rmsOfB (diff, 0, at (1.5), at (2.5)), e2 = rmsOfB (diff, 0, at (8.0), at (9.0));
+            expect (e2 > e1 * 2.0 && e2 > 0.05, "riser builds over the hold (" + juce::String (e1, 3) + " -> " + juce::String (e2, 3) + ")");
+        }
+        {   // mono buffers work too
+            auto out = run (in, { { 2.0, LiveEngine::stutter, 1.0f }, { 3.0, LiveEngine::stutter, 0.0f } }, 1);
+            bool finite = true;
+            for (int i = 0; i < total; ++i) finite &= std::isfinite (out.getSample (0, i));
+            expect (finite, "mono");
+        }
+        if (liveFails > 0) { std::cout << "FAIL: live pads (" << liveFails << ")\n"; failures += liveFails; }
     }
 
     // ---- state round trip of moves

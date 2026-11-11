@@ -84,6 +84,11 @@ public:
                 editor.refreshForSnapshot();
                 editor.showCardPage (1);
             }
+            if (args.contains ("livepads"))
+            {
+                editor.showCardPage (3);
+                proc->setLivePad (2, true);   // one pad held, for the lights
+            }
             if (args.contains ("page3"))
             {
                 // a few fx moves in the stack, so the page shows them switched on

@@ -65,7 +65,7 @@ jobs:
           codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/"Koolaid Man.component"
           killall -9 AudioComponentRegistrar || true
           auval -a | grep -i "Kool" || true
-          auval -strict -v aufx KmBd Kool
+          auval -strict -v aumf KmBd Kool
       - name: Sign (ad-hoc) and package
         run: |
           mkdir -p dist

@@ -68,13 +68,13 @@ juce_add_plugin(KoolaidMan
     PLUGIN_CODE                 KmBd
     FORMATS                     VST3 AU Standalone
     IS_SYNTH                    FALSE
-    NEEDS_MIDI_INPUT            FALSE
+    NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD     FALSE
     VST3_CATEGORIES             Fx Tools
-    AU_MAIN_TYPE                kAudioUnitType_Effect
+    AU_MAIN_TYPE                kAudioUnitType_MusicEffect
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT  "Koolaid Man's standalone app can capture audio from your input.")
 
@@ -85,7 +85,8 @@ set(KOOLAID_CORE_SOURCES
     src/DropRenderer.cpp
     src/Mastering.cpp
     src/KeyDetector.cpp
-    src/Presets.cpp)
+    src/Presets.cpp
+    src/LiveEngine.cpp)
 
 target_sources(KoolaidMan PRIVATE
     ${KOOLAID_CORE_SOURCES}
@@ -107,7 +108,8 @@ target_compile_definitions(KoolaidMan PUBLIC
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_FLAC=1
     JUCE_USE_OGGVORBIS=1
-    JUCE_USE_MP3AUDIOFORMAT=1)
+    JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_VST3_EMULATE_MIDI_CC_WITH_PARAMETERS=0)   # the LIVE PADS only need notes
 
 target_link_libraries(KoolaidMan
     PRIVATE

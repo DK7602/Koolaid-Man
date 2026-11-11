@@ -5,6 +5,7 @@
 #include "Model.h"
 #include "DropRenderer.h"
 #include "Presets.h"
+#include "LiveEngine.h"
 
 /** Raw audio as it was loaded (at its own sample rate). */
 struct SourceAudio
@@ -64,7 +65,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return "Koolaid Man"; }
-    bool acceptsMidi() const override { return false; }
+    bool acceptsMidi() const override { return true; }   // LIVE PADS: notes C1-G1 hold the pads
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -84,6 +85,12 @@ public:
 
     /** Call after editing the model. Re-renders and marks the preset modified. */
     void modelChanged (bool markPresetDirty = true);
+
+    /** LIVE PADS: hold / release a pad from the UI (drives the pad's automatable parameter,
+        so a DAW in write mode records the performance). */
+    void setLivePad (int pad, bool down);
+    bool isLivePadHeld (int pad) const;
+    float getLiveActivity (int pad) const { return live.getActivity (pad); }
 
     bool loadAudioFile (const juce::File& file, int slot, juce::String& error);
 
@@ -207,6 +214,14 @@ private:
     juce::AudioParameterFloat* buildParam = nullptr;
     juce::AudioParameterFloat* tensionParam = nullptr;
     float lastBuild = 1.0f, lastGain = 1.0f, lastTension = 1.0f;
+    // LIVE PADS
+    void processMain (juce::AudioBuffer<float>&);
+    void processLive (juce::AudioBuffer<float>&, juce::MidiBuffer&);
+    km::LiveEngine live;
+    std::array<juce::AudioParameterBool*, km::LiveEngine::numPads> liveParams {};
+    float midiHeld[km::LiveEngine::numPads] {};
+    double blockBpm = 120.0, blockPpq = 0.0, freePpq = 0.0;
+    bool blockHasPpq = false, blockPlaying = false;
     double captureNextPpq = 0.0;
 
     std::vector<EditState> undoStack, redoStack;

@@ -67,6 +67,15 @@ KoolaidProcessor::KoolaidProcessor()
                                                                 juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
                                                                 juce::AudioParameterFloatAttributes().withLabel ("%")));
 
+    // LIVE PADS: one automatable switch per pad ("Live Stutter", ...)
+    static const char* liveNames[LiveEngine::numPads] = { "Stutter", "Roll", "Filter", "Riser", "Tape Stop", "Echo Out", "Wash", "Cut" };
+    for (int pad = 0; pad < LiveEngine::numPads; ++pad)
+    {
+        const juce::String name (liveNames[pad]);
+        addParameter (liveParams[(size_t) pad] = new juce::AudioParameterBool (
+                          juce::ParameterID { "live" + name.removeCharacters (" ").toLowerCase(), 1 }, "Live " + name, false));
+    }
+
     formatManager.registerBasicFormats();
 
     for (int t = 0; t < numMoveTypes; ++t)
@@ -109,8 +118,10 @@ juce::AudioProcessorEditor* KoolaidProcessor::createEditor()
 }
 
 //==============================================================================
-void KoolaidProcessor::prepareToPlay (double sampleRate, int)
+void KoolaidProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
+    live.prepare (sampleRate > 0 ? sampleRate : 48000.0, samplesPerBlock);
+    for (auto& h : midiHeld) h = 0.0f;
     if (sampleRate > 0 && std::abs (sampleRate - engineRate) > 0.5)
     {
         engineRate = sampleRate;
@@ -127,9 +138,76 @@ void KoolaidProcessor::prepareToPlay (double sampleRate, int)
     }
 }
 
-void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    processMain (buffer);
+    processLive (buffer, midi);
+    midi.clear();   // the notes only drive the pads
+}
+
+void KoolaidProcessor::processLive (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    const int numSamples = buffer.getNumSamples();
+    const double sr = getSampleRate() > 0 ? getSampleRate() : engineRate;
+    const double bpm = blockBpm > 0 ? blockBpm : model.bpm;
+    // without a host playhead the grid runs free at the session tempo
+    const double ppq0 = blockHasPpq ? blockPpq : freePpq;
+    freePpq = ppq0 + numSamples * bpm / (60.0 * sr);
+    const double ppqPerSample = bpm / (60.0 * sr);
+
+    float held[LiveEngine::numPads];
+    auto updateHeld = [&]
+    {
+        for (int p = 0; p < LiveEngine::numPads; ++p)
+            held[p] = juce::jmax (liveParams[(size_t) p]->get() ? 1.0f : 0.0f, midiHeld[p]);
+    };
+    updateHeld();
+    int pos = 0;
+    for (const auto meta : midi)
+    {
+        const auto msg = meta.getMessage();
+        const int at = juce::jlimit (0, numSamples, meta.samplePosition);
+        int pad = -1;
+        float value = 0.0f;
+        if (msg.isNoteOn())       { pad = msg.getNoteNumber() - LiveEngine::firstNote; value = juce::jmax (0.05f, msg.getFloatVelocity()); }
+        else if (msg.isNoteOff()) { pad = msg.getNoteNumber() - LiveEngine::firstNote; value = 0.0f; }
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
+            if (at > pos) { live.process (buffer, pos, at - pos, held, bpm, ppq0 + pos * ppqPerSample); pos = at; }
+            for (auto& h : midiHeld) h = 0.0f;
+            updateHeld();
+            continue;
+        }
+        if (pad < 0 || pad >= LiveEngine::numPads) continue;
+        if (at > pos)
+        {
+            live.process (buffer, pos, at - pos, held, bpm, ppq0 + pos * ppqPerSample);   // sample-accurate
+            pos = at;
+        }
+        midiHeld[pad] = value;
+        updateHeld();
+    }
+    if (pos < numSamples)
+        live.process (buffer, pos, numSamples - pos, held, bpm, ppq0 + pos * ppqPerSample);
+}
+
+void KoolaidProcessor::setLivePad (int pad, bool down)
+{
+    if (pad < 0 || pad >= LiveEngine::numPads) return;
+    auto* prm = liveParams[(size_t) pad];
+    if (down) prm->beginChangeGesture();
+    prm->setValueNotifyingHost (down ? 1.0f : 0.0f);
+    if (! down) prm->endChangeGesture();
+}
+
+bool KoolaidProcessor::isLivePadHeld (int pad) const
+{
+    return pad >= 0 && pad < LiveEngine::numPads && liveParams[(size_t) pad]->get();
+}
+
+void KoolaidProcessor::processMain (juce::AudioBuffer<float>& buffer)
+{
     const int numSamples = buffer.getNumSamples();
     const int numIn = getTotalNumInputChannels(), numOut = getTotalNumOutputChannels();
     for (int ch = numIn; ch < numOut; ++ch)
@@ -153,6 +231,10 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         }
     }
     hostPlaying.store (hostIsPlaying);
+    blockBpm = bpm;
+    blockPpq = ppq;
+    blockHasPpq = hasPpq && hostIsPlaying;
+    blockPlaying = hostIsPlaying;
 
     // ---- capture (records the incoming audio, starting on the next bar line)
     if (captureArmed.load() && ! captureDone.load())

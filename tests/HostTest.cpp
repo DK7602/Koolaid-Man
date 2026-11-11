@@ -436,6 +436,60 @@ public:
             check (m.moves.size() == before + 2, "redo replays both steps");
         }
 
+        // ---- LIVE PADS: a MIDI note holds a pad, sample-accurately; automation does the same
+        {
+            KoolaidProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            auto block = [&] (juce::AudioBuffer<float>& b, int startSample)
+            {
+                for (int i = 0; i < b.getNumSamples(); ++i)
+                {
+                    const float v = 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 220.0 * (startSample + i) / 48000.0);
+                    b.setSample (0, i, v);
+                    b.setSample (1, i, v);
+                }
+            };
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer midi;
+            bool passBefore = true, silentDuring = true, backAfter = true;
+            int n = 0;
+            for (int k = 0; k < 40; ++k, n += 512)
+            {
+                block (b, n);
+                juce::AudioBuffer<float> ref (b);
+                midi.clear();
+                if (k == 10) midi.addEvent (juce::MidiMessage::noteOn (1, km::LiveEngine::firstNote + km::LiveEngine::cut, (juce::uint8) 100), 200);
+                if (k == 20) midi.addEvent (juce::MidiMessage::noteOff (1, km::LiveEngine::firstNote + km::LiveEngine::cut), 0);
+                q.processBlock (b, midi);
+                for (int i = 0; i < 512; ++i)
+                {
+                    const float d = std::abs (b.getSample (0, i) - ref.getSample (0, i));
+                    if (k < 10 || (k == 10 && i < 200)) passBefore &= d == 0.0f;
+                    if (k >= 13 && k < 20) silentDuring &= std::abs (b.getSample (0, i)) < 1.0e-4f;   // after the ~3 ms de-click fade
+                    if (k > 22) backAfter &= d < 1.0e-4f;
+                }
+            }
+            check (q.acceptsMidi(), "accepts MIDI (pads on notes C1-G1)");
+            check (passBefore, "audio passes untouched until the note (sample-accurate)");
+            check (silentDuring, "MIDI note C1+7 (G1) holds CUT: silence");
+            check (backAfter, "note off: the track comes back");
+
+            // the same pad from its automatable parameter
+            q.setLivePad (km::LiveEngine::cut, true);
+            bool silentParam = true;
+            for (int k = 0; k < 6; ++k, n += 512)
+            {
+                block (b, n);
+                midi.clear();
+                q.processBlock (b, midi);
+                if (k > 2) silentParam &= b.getMagnitude (0, 0, 512) < 1.0e-4f;
+            }
+            q.setLivePad (km::LiveEngine::cut, false);
+            check (silentParam, "the \"Live Cut\" parameter (automation / on-screen pad) holds it too");
+            q.releaseResources();
+        }
+
         // ---- ROLL keeps locked moves and remembers its style
         {
             auto& m = p.getModel();

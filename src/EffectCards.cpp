@@ -369,6 +369,124 @@ namespace
         int version = -1;
     };
 
+    /** LIVE PADS: eight pads you hold while the DAW plays (or trigger with MIDI notes C1-G1). */
+    class LivePanel : public juce::Component, private juce::Timer
+    {
+    public:
+        explicit LivePanel (KoolaidProcessor& p) : proc (p)
+        {
+            setBounds (462, 620, 962, 250);
+            for (int i = 0; i < km::LiveEngine::numPads; ++i)
+                pads[(size_t) i] = padBounds (i);
+        }
+        void visibilityChanged() override { if (isVisible()) startTimerHz (30); else stopTimer(); }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto& sk = Skin::get();
+            const bool light = sk.getTheme() == Theme::light;
+            static const juce::uint32 colours[km::LiveEngine::numPads] = { 0xffff2d9b, 0xffb13cff, 0xff35e6f2, 0xffb4f53c,
+                                                                            0xffff8a3d, 0xff3d7dff, 0xffa36bff, 0xffff4b4b };
+            for (int i = 0; i < km::LiveEngine::numPads; ++i)
+            {
+                const auto r = pads[(size_t) i];
+                const juce::Colour c (colours[i]);
+                const float a = juce::jlimit (0.0f, 1.0f, shown[(size_t) i]);
+                const bool held = proc.isLivePadHeld (i) || a > 0.3f;
+                if (a > 0.02f)
+                {
+                    g.setColour (c.withAlpha (0.35f * a));   // glow
+                    g.fillRoundedRectangle (r.expanded (5.0f), 18.0f);
+                }
+                juce::ColourGradient grad (c.withMultipliedBrightness (0.55f + 0.45f * a).withAlpha (light ? 0.75f + 0.25f * a : 0.45f + 0.55f * a), 0, r.getY(),
+                                           c.darker (0.9f - 0.5f * a).withAlpha (light ? 0.85f : 0.6f + 0.4f * a), 0, r.getBottom(), false);
+                g.setGradientFill (grad);
+                g.fillRoundedRectangle (r, 14.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.10f + 0.25f * a));
+                g.fillRoundedRectangle (r.withHeight (r.getHeight() * 0.42f).reduced (4.0f, 3.0f), 11.0f);   // 90s gloss
+                g.setColour (held ? juce::Colours::white : c.brighter (0.4f));
+                g.drawRoundedRectangle (r.reduced (1.0f), 14.0f, held ? 2.5f : 2.0f);
+
+                drawShadowText (g, km::LiveEngine::padName (i), r.reduced (12.0f, 0.0f).withTrimmedTop (r.getHeight() * 0.22f),
+                                sk.heavyItalic (30.0f), juce::Justification::centred, juce::Colours::white, juce::Colour (0x99000000));
+                // the MIDI note in a pill
+                const juce::Rectangle<float> pill (r.getRight() - 50.0f, r.getY() + 8.0f, 42.0f, 20.0f);
+                g.setColour (juce::Colour (0x8c000000));
+                g.fillRoundedRectangle (pill, 10.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.setFont (sk.bold (14.0f));
+                g.drawText (km::LiveEngine::noteName (i), pill, juce::Justification::centred);
+            }
+            drawShadowText (g, "HOLD A PAD WHILE YOUR DAW PLAYS   /   MIDI NOTES C1-G1 PLAY THEM TOO   /   OR AUTOMATE THE \"LIVE\" PARAMETERS",
+                            { 8.0f, (float) getHeight() - 30.0f, (float) getWidth() - 16.0f, 22.0f }, sk.bold (15.0f),
+                            juce::Justification::centred, col::textDim, col::shadow);
+        }
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            pressed = padAt (e.position);
+            if (pressed >= 0) proc.setLivePad (pressed, true);
+        }
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (pressed >= 0) proc.setLivePad (pressed, false);
+            pressed = -1;
+        }
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            const int p = padAt (e.position);
+            setTooltipFor (p);
+        }
+
+        std::function<void (const juce::String&)> setTooltipText;
+
+    private:
+        juce::Rectangle<float> padBounds (int i) const
+        {
+            const int col = i % 4, row = i / 4;
+            const float w = (950.0f - 3.0f * 12.0f) / 4.0f, h = 96.0f;
+            return { 8.0f + col * (w + 12.0f), 12.0f + row * (h + 12.0f), w, h };
+        }
+        int padAt (juce::Point<float> p) const
+        {
+            for (int i = 0; i < km::LiveEngine::numPads; ++i)
+                if (pads[(size_t) i].contains (p)) return i;
+            return -1;
+        }
+        void setTooltipFor (int p)
+        {
+            if (p == hoverPad) return;
+            hoverPad = p;
+            if (setTooltipText) setTooltipText (p >= 0 ? juce::String (km::LiveEngine::padHint (p)) + "  (MIDI " + km::LiveEngine::noteName (p) + ")" : juce::String());
+        }
+        void timerCallback() override
+        {
+            bool changed = false;
+            for (int i = 0; i < km::LiveEngine::numPads; ++i)
+            {
+                const float a = juce::jmax (proc.getLiveActivity (i), proc.isLivePadHeld (i) ? 1.0f : 0.0f);
+                if (std::abs (a - shown[(size_t) i]) > 0.01f) { shown[(size_t) i] = a; changed = true; }
+            }
+            if (changed) repaint();
+        }
+
+        KoolaidProcessor& proc;
+        std::array<juce::Rectangle<float>, km::LiveEngine::numPads> pads;
+        std::array<float, km::LiveEngine::numPads> shown {};
+        int pressed = -1, hoverPad = -2;
+    };
+
+    /** A LivePanel with a tooltip. */
+    class LivePanelWithTip : public LivePanel, public juce::SettableTooltipClient
+    {
+    public:
+        explicit LivePanelWithTip (KoolaidProcessor& p) : LivePanel (p)
+        {
+            setTooltipText = [this] (const juce::String& t) { setTooltip (t); };
+            setTooltip ("Hold a pad while your DAW plays");
+        }
+    };
+
     /** MAIN MOVES / BUILD & DROP tabs in the panel's title bar. */
     class PageTab : public juce::Component
     {
@@ -677,17 +795,27 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
         cards.push_back (std::move (c));
     }
 
-    auto tab1 = std::make_unique<PageTab> (juce::Rectangle<int> (1046, 589, 120, 23), "MAIN MOVES");
-    auto tab2 = std::make_unique<PageTab> (juce::Rectangle<int> (1172, 589, 124, 23), "BUILD & DROP");
-    auto tab3 = std::make_unique<PageTab> (juce::Rectangle<int> (1302, 589, 120, 23), "FX MOVES");
+    // LIVE PADS page
+    {
+        auto lp = std::make_unique<LivePanelWithTip> (proc);
+        parent.addChildComponent (*lp);
+        livePanel = std::move (lp);
+    }
+
+    auto tab1 = std::make_unique<PageTab> (juce::Rectangle<int> (948, 589, 120, 23), "MAIN MOVES");
+    auto tab2 = std::make_unique<PageTab> (juce::Rectangle<int> (1074, 589, 124, 23), "BUILD & DROP");
+    auto tab3 = std::make_unique<PageTab> (juce::Rectangle<int> (1204, 589, 104, 23), "FX MOVES");
+    auto tab4 = std::make_unique<PageTab> (juce::Rectangle<int> (1314, 589, 108, 23), "LIVE PADS");
     tab1->onClick = [this] { setPage (0); };
     tab2->onClick = [this] { setPage (1); };
     tab3->onClick = [this] { setPage (2); };
-    for (auto* t : { tab1.get(), tab2.get(), tab3.get() })
+    tab4->onClick = [this] { setPage (3); };
+    for (auto* t : { tab1.get(), tab2.get(), tab3.get(), tab4.get() })
         parent.addAndMakeVisible (*t);
     tabs.push_back (std::move (tab1));
     tabs.push_back (std::move (tab2));
     tabs.push_back (std::move (tab3));
+    tabs.push_back (std::move (tab4));
 
     setPage (0);
     refresh();
@@ -695,9 +823,11 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
 
 void EffectCards::setPage (int p)
 {
-    page = juce::jlimit (0, 2, p);
+    page = juce::jlimit (0, 3, p);
     page2Panel->setVisible (page >= 1);
     if (page >= 1) page2Panel->toFront (false);
+    livePanel->setVisible (page == 3);
+    if (page == 3) livePanel->toFront (false);
     for (auto& c : cards)
         for (auto* comp : c->components())
         {
@@ -716,7 +846,7 @@ void EffectCards::followSelection()
     if (sel >= 0 && sel < (int) moves.size())
     {
         const int want = km::cardPage (moves[(size_t) sel].type);
-        if (want != page) setPage (want);
+        if (want != page && page != 3) setPage (want);   // the LIVE PADS page stays put while you perform
     }
     refresh();
 }
