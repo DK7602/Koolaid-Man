@@ -87,15 +87,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies
-        timeout-minutes: 12
+        timeout-minutes: 15
         run: |
           # Ubuntu mirrors sometimes stall: try the runner's existing package index first,
           # then refresh it, each attempt capped at 3 minutes, retrying instead of hanging
           PKGS="libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb ninja-build"
           APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
           for attempt in 1 2 3; do
-            if [ "$attempt" -gt 1 ]; then sudo timeout 180 apt-get $APT update || true; fi
-            if sudo timeout 180 apt-get $APT install -y --no-install-recommends $PKGS; then exit 0; fi
+            if [ "$attempt" -gt 1 ]; then
+              # fall back from GitHub's Azure mirror to Ubuntu's own archive
+              printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://us.archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+              sudo timeout 180 apt-get $APT update || true
+            fi
+            if sudo timeout 150 apt-get $APT install -y --no-install-recommends $PKGS; then exit 0; fi
             echo "attempt $attempt failed, retrying"; sleep 10
           done
           exit 1
