@@ -4,6 +4,8 @@
 
 **Short version:** Koolaid Man now passes the two industry validators used to judge plugins (**pluginval** at strictness 8 and **Apple's auval** in strict mode). The audit found and fixed **11 real problems**, two of them sound-quality bugs and one a 96 kHz detection failure. Against the competition, Koolaid Man's workflow is already unusual: it captures from your track, uses *your* snare/hats/808, and drops the result back on the grid. Its biggest gaps are **musical intelligence** (key-aware tuning, curves, a macro knob) and **content** (11 presets vs. hundreds).
 
+> **Update (later the same day): all 10 features below are now built.** See [Part 3](#part-3-what-shipped-since-the-audit) for what shipped and how each one was checked.
+
 ---
 
 ## Part 1: What the best build/drop tools do
@@ -39,7 +41,7 @@
 | 9 | **Live mode**: apply a build in real time to any track (no capture), plus **MIDI-triggered gestures** | Stutter Edit 2, Endless Smile, Transit | Performance use; a big architectural addition (today everything is rendered) | Large |
 | 10 | **Seconds or beats** for lengths | liftFX, Rise & Hit | Useful for tempo-free intros | Small |
 
-My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the big "pro sound" upgrades), then **#5** (content).
+My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the big "pro sound" upgrades), then **#5** (content). *(Done: all ten were built in order, #1 to #10.)*
 
 ---
 
@@ -87,6 +89,35 @@ My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the bi
 4. **Capture reserves memory while armed** (~92 MB at 48 kHz for up to 4 minutes; 184 MB at 96 kHz), released afterwards.
 5. **HiDPI sharpness.** A 2× version of the artwork would keep it razor-sharp on 4K screens.
 6. **Code signing**, **AAX/CLAP**, **accessibility**, **preset tags/search**: only matter for selling or for other DAWs.
+
+---
+
+## Part 3: What shipped since the audit
+
+| # | Feature | What you get | How it was checked |
+|---|---|---|---|
+| 1 | **Key-aware tuning** | Song key detected (KEY box; Auto / pick / Off). Uplifter, Sub Boom, the Impact's thump and the backup 808 land on the root | 4/4 test chord progressions in different keys detected at 44.1/48/96 kHz; Sub Boom in A minor ends at 55 Hz |
+| 2 | **Pump: Follow Kick** | Ducks on the kicks/808s found in your audio | Ducks after the detected kicks, not after the snares in between |
+| 3 | **Curves** | Auto, Linear, Ease In/Out, S-Curve, Late Rush, Steps, or draw your own; drawn in the TIMELINE | A riser's energy moves later (Late Rush) or earlier (Ease Out) than Linear, as it should |
+| 4 | **Tension macro** | Link moves to one automatable "Tension" knob; they come in along a curve you choose | Tension 0% equals the build without linked moves (engine and live preview) |
+| 5 | **Genre presets + smarter ROLL** | 67 presets in 9 genres; ROLL styles; lock moves so ROLL keeps them | Every preset renders cleanly; each style favours its signature moves (300+ rolls each); locks survive rolls and saves |
+| 6 | **Six FX moves** (new FX MOVES tab) | Delay Throw, Bitcrush, Phaser (incl. an endlessly rising barber-pole), Stereo Width, Vinyl Scratch/Rewind/Brake, Pre-Verb | Every variation renders cleanly with no level jumps; barber-pole notches measured rising on noise; width, throws and swells measured |
+| 7 | **Step patterns** | 16-step grids for Chops and Stutter | Off steps exactly silent (Chops) / untouched (Stutter, Shuffle) |
+| 8 | **Your own samples** | Drop a WAV on the Riser, Reverse Crash, Impact or Sub Boom card; auto-aligned to the drop; saved inside the project | Placement checked for all four; project reopens with the file deleted; presets reload from disk |
+| 9 | **LIVE PADS** | Eight real-time, tempo-synced gestures from the screen, MIDI notes C1-G1 or automation | 25 checks incl. sample-exact stutter repeats, echo timing, 30 s random-pad fuzzing at two tempos, exact pass-through when idle; MIDI-driven host test |
+| 10 | **Seconds or beats** | Any length can be set in seconds (tempo-free) | A 1 s tape stop lasts 1 s at 130 and 90 bpm |
+
+### Hardening pass on the new features
+
+- **All 22 move types stacked at once** render cleanly with no level jump (0.8 s at 48 kHz, 1.7 s at 96 kHz; normal 3-6 move stacks are a fraction of that).
+- **Tempo extremes**: random rolls at 60 and 200 bpm render cleanly.
+- **Live pads**: random pad hammering never produces a bad sample, and every pad held at once is stable. A pad can no longer stick on if the plug-in window is closed while you hold it.
+- **Presets**: the arrows now step through one genre at a time.
+- **Validators**: pluginval (strictness 8) and auval (strict) still pass with the new MIDI input. The VST3 exposes 13 parameters (MIDI-CC emulation is off, so Cubase's automation list stays clean).
+
+### Still open
+
+The gaps listed in Part 2 still apply. Above all, **nobody has listened yet**. The checks above prove timing, placement and levels, not taste. The new things most worth an ear are the barber-pole phaser, the vinyl moves, Pre-Verb and the live pads.
 
 ---
 

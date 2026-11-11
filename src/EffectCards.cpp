@@ -379,7 +379,17 @@ namespace
             for (int i = 0; i < km::LiveEngine::numPads; ++i)
                 pads[(size_t) i] = padBounds (i);
         }
-        void visibilityChanged() override { if (isVisible()) startTimerHz (30); else stopTimer(); }
+        ~LivePanel() override { releaseHeld(); }   // closing the window mid-press must not leave a pad stuck on
+        void visibilityChanged() override
+        {
+            if (isVisible()) startTimerHz (30);
+            else { stopTimer(); releaseHeld(); }
+        }
+        void releaseHeld()
+        {
+            if (pressed >= 0) proc.setLivePad (pressed, false);
+            pressed = -1;
+        }
 
         void paint (juce::Graphics& g) override
         {
@@ -427,11 +437,7 @@ namespace
             pressed = padAt (e.position);
             if (pressed >= 0) proc.setLivePad (pressed, true);
         }
-        void mouseUp (const juce::MouseEvent&) override
-        {
-            if (pressed >= 0) proc.setLivePad (pressed, false);
-            pressed = -1;
-        }
+        void mouseUp (const juce::MouseEvent&) override { releaseHeld(); }
         void mouseMove (const juce::MouseEvent& e) override
         {
             const int p = padAt (e.position);

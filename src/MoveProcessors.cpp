@@ -975,16 +975,19 @@ namespace
             Svf res[6];
             for (int k = 0; k < 6; ++k) res[k].set (sr, partials[k] * (ch == 0 ? 1.0 : 1.013), 0.08);
             auto* d = out.getWritePointer (ch);
+            // exp (-t / tau) as a running product (much cheaper than exp() per sample)
+            const double kDecay = std::exp (-1.0 / (decaySeconds * sr)), kAttack = std::exp (-1.0 / (0.002 * sr));
+            double decay = 1.0, attack = 1.0;
             for (int i = 0; i < len; ++i)
             {
-                const double t = i / sr;
                 const float nz = rng.nextFloat() * 2.0f - 1.0f;
                 float metal = 0.0f;
                 for (auto& r : res) { float l, b, h; r.process (nz, l, b, h); metal += b; }
                 float v = hp2.processSingleSampleRaw (hp1.processSingleSampleRaw (nz * 0.6f + metal * 0.12f));
                 v = lp.processSingleSampleRaw (v);
-                const float env = (float) (std::exp (-t / decaySeconds) * (1.0 - std::exp (-t / 0.002)));
-                d[i] = v * env;
+                d[i] = v * (float) (decay * (1.0 - attack));
+                decay *= kDecay;
+                attack *= kAttack;
             }
         }
         return out;
@@ -1861,16 +1864,21 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
             hp.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 900.0));
             bp.setCoefficients (juce::IIRCoefficients::makeBandPass (sr, 180.0, 1.0));
             double phase = 0.0;
+            const double thump = c.rootHz (40.0, 48.0);   // the body of the hit sits on the root
+            // the four exponential envelopes as running products
+            const double k04 = std::exp (-1.0 / (0.04 * sr)), k09 = std::exp (-1.0 / (0.09 * sr)),
+                         k18 = std::exp (-1.0 / (0.18 * sr)), k28 = std::exp (-1.0 / (0.28 * sr));
+            double e04 = 1.0, e09 = 1.0, e18 = 1.0, e28 = 1.0;
             for (int i = 0; i < juce::jmin (T, (int) (1.2 * sr)); ++i)
             {
                 const double t = i / sr;
                 const float nz = rng.nextFloat() * 2.0f - 1.0f;
-                const double thump = c.rootHz (40.0, 48.0);   // the body of the hit sits on the root
-                phase += (thump + thump * 0.83 * std::exp (-t / 0.04)) / sr;
-                const float v = hp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.09) * 0.8f
-                              + bp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.18) * 1.5f
-                              + (float) std::sin (juce::MathConstants<double>::twoPi * phase) * (float) std::exp (-t / 0.28);
+                phase += (thump + thump * 0.83 * e04) / sr;
+                const float v = hp.processSingleSampleRaw (nz) * (float) e09 * 0.8f
+                              + bp.processSingleSampleRaw (nz) * (float) e18 * 1.5f
+                              + (float) std::sin (juce::MathConstants<double>::twoPi * phase) * (float) e28;
                 hit.setSample (ch, i, v * (float) juce::jmin (1.0, t / 0.0008));
+                e04 *= k04; e09 *= k09; e18 *= k18; e28 *= k28;
             }
         }
     }

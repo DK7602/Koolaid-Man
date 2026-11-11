@@ -203,6 +203,10 @@ std::vector<Preset> factoryPresets()
                                  mk (T::Scratch, [] (M m) { m.mode = 2; m.division = 5; m.knob = 0.4f; }) });
     G ("Slow Motion", "Chill", { mk (T::Pitch, [] (M m) { m.semitones = -12; m.knob = 0.5f; }), mk (T::Atmos, [] (M m) { m.mode = 0; m.knob = 0.5f; m.knob2 = 0.4f; }),
                                  mk (T::Gap, [] (M m) { m.mode = 1; m.division = 5; m.knob = 0.8f; }) });
+
+    // in browser order, so the preset arrows walk through one genre at a time
+    std::stable_sort (p.begin(), p.end(), [] (const Preset& a, const Preset& b)
+                      { return presetGenres().indexOf (a.genre) < presetGenres().indexOf (b.genre); });
     return p;
 }
 

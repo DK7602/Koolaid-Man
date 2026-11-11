@@ -761,6 +761,31 @@ int main (int argc, char** argv)
         if (! onGrid || ! nonSilent) { std::cout << "FAIL: dither\n"; ++failures; }
     }
 
+    // ---- stress: every move type stacked at once, and tempo extremes
+    {
+        DropModel m = model;
+        for (int t = 0; t < numMoveTypes; ++t) m.moves.push_back (defaultMove ((MoveType) t));
+        const auto s0 = juce::Time::getMillisecondCounterHiRes();
+        auto r = renderDrop (m, analysis, 1);
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - s0;
+        std::cout << "all " << numMoveTypes << " move types at once: " << juce::String (ms, 0) << " ms, max beat jump "
+                  << juce::String (maxBeatJump (*r, clip->audio), 1) << " dB\n";
+        if (! checkBuffer (full (*r), "all moves at once")) ++failures;
+        if (maxBeatJump (*r, clip->audio) > 6.0) { std::cout << "FAIL: all moves at once jumps\n"; ++failures; }
+        juce::Random trng (17);
+        for (double tempo : { 60.0, 200.0 })
+            for (int k = 0; k < 4; ++k)
+            {
+                DropModel mt = model;
+                mt.bpm = tempo;
+                mt.zoneStart = 4.0;
+                mt.zoneEnd = juce::jmin (mt.clipLengthBeats(), 16.0);
+                mt.moves = rollMoves (trng, true, k * 2);
+                auto rt = renderDrop (mt, nullptr, 1);
+                if (! checkBuffer (full (*rt), "roll at " + juce::String (tempo) + " bpm")) ++failures;
+            }
+    }
+
     // ---- lengths in seconds: the same length whatever the tempo
     {
         for (double tempo : { 130.0, 90.0 })
@@ -944,6 +969,47 @@ int main (int argc, char** argv)
             bool finite = true;
             for (int i = 0; i < total; ++i) finite &= std::isfinite (out.getSample (0, i));
             expect (finite, "mono");
+        }
+        {   // fuzz: random presses of every pad at two tempos - always finite, never wild
+            for (double fb : { 70.0, 175.0 })
+            {
+                juce::Random fr (fb == 70.0 ? 1 : 2);
+                LiveEngine le;
+                le.prepare (sr, 1024);
+                const int N = (int) (sr * 30.0);
+                juce::AudioBuffer<float> io (2, 1024);
+                float held[LiveEngine::numPads] {};
+                double ppqF = 0.0;
+                float peak = 0.0f;
+                bool finite = true;
+                for (int done = 0; done < N; )
+                {
+                    const int len = 1 + fr.nextInt (1024);
+                    for (int i = 0; i < len; ++i)
+                    {
+                        const float v = 0.3f * (float) std::sin (0.031 * (done + i)) + 0.05f * (fr.nextFloat() - 0.5f);
+                        io.setSample (0, i, v);
+                        io.setSample (1, i, -v);
+                    }
+                    if (fr.nextFloat() < 0.15f) { const int p = fr.nextInt (LiveEngine::numPads); held[p] = held[p] > 0 ? 0.0f : 0.2f + 0.8f * fr.nextFloat(); }
+                    le.process (io, 0, len, held, fb, ppqF);
+                    for (int ch = 0; ch < 2; ++ch)
+                        for (int i = 0; i < len; ++i) { const float v = io.getSample (ch, i); finite &= std::isfinite (v); peak = juce::jmax (peak, std::abs (v)); }
+                    ppqF += len * fb / (60.0 * sr);
+                    done += len;
+                }
+                expect (finite && peak < 3.0f, "30 s of random pad hammering at " + juce::String (fb, 0) + " bpm stays sane (peak " + juce::String (peak, 2) + ")");
+            }
+            // every pad at once for 4 bars, then all released: back to exact pass-through
+            std::vector<Ev> evs;
+            for (int p = 0; p < LiveEngine::numPads; ++p) { evs.push_back ({ 2.0 + 0.1 * p, p, 1.0f }); evs.push_back ({ 6.0, p, 0.0f }); }
+            juce::AudioBuffer<float> longIn (2, (int) (spbL * 40));
+            for (int i = 0; i < longIn.getNumSamples(); ++i) { longIn.setSample (0, i, in.getSample (0, i % total)); longIn.setSample (1, i, in.getSample (1, i % total)); }
+            auto out = run (longIn, evs);
+            bool finite = true;
+            for (int i = 0; i < out.getNumSamples(); ++i) finite &= std::isfinite (out.getSample (0, i)) && std::abs (out.getSample (0, i)) < 3.0f;
+            expect (finite, "all eight pads held at once");
+            expect (maxDiff (out, longIn, 0, (int) (spbL * 30), out.getNumSamples()) == 0.0f, "after letting go of everything, exact pass-through again");
         }
         if (liveFails > 0) { std::cout << "FAIL: live pads (" << liveFails << ")\n"; failures += liveFails; }
     }
