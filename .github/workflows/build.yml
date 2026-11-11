@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Configure
-        run: cmake -S . -B build -A x64   # newest installed Visual Studio
+        run: cmake -S . -B build -A x64 -DKOOLAID_VERSION=1.0.${{ github.run_number }}   # newest installed Visual Studio
       - name: Build
         run: cmake --build build --config Release --target KoolaidMan_VST3 KoolaidMan_Standalone --parallel
       - name: Validate VST3 with pluginval (industry-standard plug-in tests)
@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Configure
-        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DKOOLAID_VERSION=1.0.${{ github.run_number }}
       - name: Build
         run: cmake --build build --config Release --target KoolaidMan_VST3 KoolaidMan_AU KoolaidMan_Standalone -- -quiet
       - name: Validate the Audio Unit with auval (Apple's validator)

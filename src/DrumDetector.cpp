@@ -32,6 +32,29 @@ namespace
         return out;
     }
 
+    /** Filters and measures in one pass, without keeping the filtered signal (saves a
+        full-length copy per band when a whole song is analysed). */
+    std::vector<float> bandEnergyDb (const std::vector<float>& x, std::initializer_list<juce::IIRCoefficients> stages, int hop)
+    {
+        std::vector<juce::IIRFilter> filters (stages.size());
+        size_t k = 0;
+        for (auto& c : stages) filters[k++].setCoefficients (c);
+        const size_t n = x.size() / (size_t) hop;
+        std::vector<float> e (n);
+        for (size_t i = 0; i < n; ++i)
+        {
+            double s = 0;
+            for (int j = 0; j < hop; ++j)
+            {
+                float v = x[i * (size_t) hop + (size_t) j];
+                for (auto& f : filters) v = f.processSingleSampleRaw (v);
+                s += (double) v * v;
+            }
+            e[i] = (float) (10.0 * std::log10 (s / hop + 1.0e-12));
+        }
+        return e;
+    }
+
     /** Log energy per hop. */
     std::vector<float> hopEnergyDb (const std::vector<float>& x, int hop)
     {
@@ -162,17 +185,14 @@ DrumAnalysis analyseDrums (const Buffer& audio, double sr, double samplesPerBeat
 
     const auto low = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 28.0), juce::IIRCoefficients::makeLowPass (sr, 110.0),
                                        juce::IIRCoefficients::makeLowPass (sr, 110.0) });
-    const auto body = filtered (mono, { juce::IIRCoefficients::makeBandPass (sr, 210.0, 1.2) });
-    const auto noise = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 1800.0), juce::IIRCoefficients::makeLowPass (sr, 8000.0) });
+    // the low band is kept (the 808 pitch is measured on it); the others are measured on the fly
+    const auto eLow = hopEnergyDb (low, hop);
+    const auto eBody = bandEnergyDb (mono, { juce::IIRCoefficients::makeBandPass (sr, 210.0, 1.2) }, hop);
+    const auto eNoise = bandEnergyDb (mono, { juce::IIRCoefficients::makeHighPass (sr, 1800.0), juce::IIRCoefficients::makeLowPass (sr, 8000.0) }, hop);
     // capped at 16 kHz so detection doesn't depend on the sample rate (at 96 kHz "everything
     // above 7 kHz" would include ultrasonic content up to 48 kHz)
-    const auto high = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 7000.0), juce::IIRCoefficients::makeHighPass (sr, 7000.0),
-                                        juce::IIRCoefficients::makeLowPass (sr, juce::jmin (16000.0, sr * 0.45)) });
-
-    const auto eLow = hopEnergyDb (low, hop);
-    const auto eBody = hopEnergyDb (body, hop);
-    const auto eNoise = hopEnergyDb (noise, hop);
-    const auto eHigh = hopEnergyDb (high, hop);
+    const auto eHigh = bandEnergyDb (mono, { juce::IIRCoefficients::makeHighPass (sr, 7000.0), juce::IIRCoefficients::makeHighPass (sr, 7000.0),
+                                             juce::IIRCoefficients::makeLowPass (sr, juce::jmin (16000.0, sr * 0.45)) }, hop);
 
     const auto ms = [&] (double t) { return juce::jmax (1, (int) std::round (t * sr / 1000.0 / hop)); };
     const auto beatPhase = [&] (int frame)

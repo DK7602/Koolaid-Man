@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(KoolaidMan VERSION 1.0.0 LANGUAGES C CXX)
+# CI passes the build number (1.0.<run>) so Cubase, the About box and the installer agree
+set(KOOLAID_VERSION "1.0.0" CACHE STRING "Plug-in version")
+project(KoolaidMan VERSION ${KOOLAID_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -145,7 +147,7 @@ if(KOOLAID_BUILD_TESTS)
         target_include_directories(${tool} PRIVATE src)
         target_compile_definitions(${tool} PRIVATE
             JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1
-            JucePlugin_Name="Koolaid Man" JucePlugin_VersionString="1.0.0")
+            JucePlugin_Name="Koolaid Man" JucePlugin_VersionString="${PROJECT_VERSION}")
         target_link_libraries(${tool} PRIVATE
             KoolaidResources signalsmith-stretch
             juce::juce_audio_utils juce::juce_audio_formats juce::juce_dsp
