@@ -145,6 +145,7 @@ void MoveStackView::paint (juce::Graphics& g)
             tagRight -= w + 4.0f;
         };
         if (m.customRegion) badge ("TIMED", 52.0f, col::cyan.withAlpha (0.9f), juce::Colour (0xff0b2a33));
+        if (m.patternOn && km::moveHasPattern (m.type)) badge ("STEPS", 50.0f, juce::Colour (0xffb8f03a), juce::Colour (0xff1f3300));
         if (m.tensionLink)  badge ("TENSION", 62.0f, col::yellow.withAlpha (0.92f), juce::Colour (0xff3a2a00));
         if (m.locked)
         {
@@ -285,6 +286,11 @@ void MoveStackView::showRowMenu (int index)
     menu.addItem (7, "Reset Timing (Auto)", m.customRegion);
     menu.addItem (8, "Link to Tension", true, m.tensionLink);
     menu.addItem (9, "Lock (Keep on ROLL)", true, m.locked);
+    if (km::moveHasPattern (m.type))
+    {
+        menu.addItem (10, "Step Pattern - Draw It...", true, m.patternOn);
+        menu.addItem (11, "Built-In Rhythm (No Pattern)", m.patternOn);
+    }
     {
         juce::PopupMenu curves;
         const auto& names = km::curveNames();
@@ -333,6 +339,8 @@ void MoveStackView::showRowMenu (int index)
         else if (result == 7) m.customRegion = false;
         else if (result == 8) m.tensionLink = ! m.tensionLink;
         else if (result == 9) m.locked = ! m.locked;
+        else if (result == 10) { m.patternOn = true; if (onStackEdited) onStackEdited(); if (onEditPattern) onEditPattern (uid); refresh(); return; }
+        else if (result == 11) m.patternOn = false;
         if (onStackEdited) onStackEdited();
         refresh();
     });

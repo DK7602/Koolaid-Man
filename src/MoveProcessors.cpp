@@ -385,6 +385,16 @@ namespace
         }
     }
 
+    /** Which pattern step a zone sample falls on: steps of 'step' samples counted on the song's
+        grid (the clip starts on a bar line), so a 16-step pattern of 1/16s lines up with each bar. */
+    inline int patternStep (const MoveContext& c, int i, int step, int& posInStep)
+    {
+        const juce::int64 abs = c.zoneStartInClip + i;
+        posInStep = (int) (abs % step);
+        return (int) ((abs / step) % patternSteps);
+    }
+    inline bool stepOn (const Move& m, int s) { return ((m.pattern >> ((s % patternSteps + patternSteps) % patternSteps)) & 1u) != 0; }
+
     void doChops (const Move& m, const MoveContext& c, Buffer& b)
     {
         const int n = b.getNumSamples();
@@ -401,7 +411,10 @@ namespace
             for (int s = 0; s < numSlices; ++s)
             {
                 int from = s;
-                if (rng.nextFloat() < depth * 0.8f)
+                int pos = 0;
+                const bool shuffleThis = m.patternOn ? stepOn (m, patternStep (c, s * step, step, pos)) : rng.nextFloat() < depth * 0.8f;
+                if (m.patternOn) rng.nextFloat();   // keep the random sequence the same either way
+                if (shuffleThis)
                 {
                     const int barStart = (s / slicesPerBar) * slicesPerBar;
                     from = juce::jmin (numSlices - 1, barStart + rng.nextInt (slicesPerBar));
@@ -420,6 +433,33 @@ namespace
                         d[s * step + i] = from == s ? sp[s * step + i] : sp[from * step + i] * g;
                     }
                 }
+            }
+            return;
+        }
+
+        if (m.patternOn)
+        {
+            // step pattern: on steps sound for the whole step (consecutive steps stay open),
+            // off steps are cut by Depth. Tremolo swells each on step instead.
+            for (int i = 0; i < n; ++i)
+            {
+                int ph = 0;
+                const int st = patternStep (c, i, step, ph);
+                const bool on = stepOn (m, st), prevOn = stepOn (m, st - 1), nextOn = stepOn (m, st + 1);
+                float open;
+                if (m.mode == 2)
+                    open = on ? (float) (0.5 - 0.5 * std::cos (twoPi * ph / step)) : 0.0f;
+                else if (! on)
+                    open = 0.0f;
+                else if (! prevOn && ph < ramp)
+                    open = (float) ph / ramp;
+                else if (! nextOn && ph > step - ramp)
+                    open = (float) (step - ph) / ramp;
+                else
+                    open = 1.0f;
+                const float g = 1.0f - depth * (1.0f - open);
+                for (int ch = 0; ch < b.getNumChannels(); ++ch)
+                    b.getWritePointer (ch)[i] *= g;
             }
             return;
         }
@@ -494,6 +534,23 @@ namespace
             const int beat = juce::jmax (slice, toSamples (1.0, c));
             for (int p0 = start; p0 < n; p0 += beat)
                 tileSlice (b, src, p0, slice, p0, juce::jmin (n, p0 + beat), fade);
+        }
+        // step pattern: only the on steps stutter, the off steps play the track as it was
+        if (m.patternOn)
+        {
+            for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            {
+                auto* d = b.getWritePointer (ch);
+                auto* o = src.getReadPointer (ch);
+                for (int i = start; i < n; ++i)
+                {
+                    int ph = 0;
+                    const int st = patternStep (c, i, slice, ph);
+                    const float on = stepOn (m, st) ? 1.0f : 0.0f, was = stepOn (m, st - 1) ? 1.0f : 0.0f;
+                    const float w = ph < fade && i - start >= fade ? was + (on - was) * (float) ph / fade : on;
+                    d[i] = o[i] + (d[i] - o[i]) * w;
+                }
+            }
         }
         // de-click the entry
         Buffer before (src);

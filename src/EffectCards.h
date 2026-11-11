@@ -21,6 +21,7 @@ public:
 
     std::function<void()> onEdited;     // model changed -> render
     std::function<void()> onStackChanged;
+    std::function<void (int uid)> onEditPattern;   // Chops / Stutter: open the step-pattern editor
     std::function<void (skin::SkinKnob&, const juce::String&, bool)> onBubble;
 
 private:

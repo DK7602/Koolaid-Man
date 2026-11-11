@@ -143,6 +143,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     cards = std::make_unique<EffectCards> (proc, stack, root);
     cards->onEdited = [this] { edited(); };
     cards->onStackChanged = [this] { stack.refresh(); };
+    cards->onEditPattern = [this] (int uid) { stack.select (uid); editPattern (uid); };
     cards->onBubble = [this] (SkinKnob& k, const juce::String& t, bool show)
     {
         if (show) bubble.show (k, t);
@@ -173,6 +174,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     root.addChildComponent (manual);
     root.addChildComponent (gridEditor);
     stack.onEditCurve = [this] (int uid) { editCurve (uid); };
+    stack.onEditPattern = [this] (int uid) { editPattern (uid); };
 
     //------------------------------------------------------------------ header steps
     step1.setTooltip ("1. DRAG IN AUDIO - load the bars before your drop, or capture them from your track");
@@ -822,6 +824,30 @@ void KoolaidEditor::editCurve (int uid)
             {
                 m.curvePoints = v;
                 m.curve = km::curveCustom;
+            }
+        proc.modelChanged (true);
+        stack.refresh();
+        waveform.repaint();
+        presetName.setText (presetDisplayName());
+    });
+}
+
+void KoolaidEditor::editPattern (int uid)
+{
+    const km::Move* mv = nullptr;
+    for (auto& m : proc.getModel().moves) if (m.uid == uid) mv = &m;
+    if (mv == nullptr || ! km::moveHasPattern (mv->type)) return;
+    const auto& d = km::divisions()[(size_t) juce::jlimit (0, (int) km::divisions().size() - 1, mv->division)];
+    const double beats = km::divisionToBeats (mv->division, proc.getModel().beatsPerBar()) * km::patternSteps;
+    const juce::String title = juce::String (mv->type == km::MoveType::Chops ? "CHOPS" : "STUTTER") + " PATTERN  -  16 x "
+                               + d.label + " = " + km::formatLength (beats, proc.getModel().beatsPerBar());
+    gridEditor.openPattern (title, mv->pattern, km::patternSteps, [this, uid] (juce::uint32 bits)
+    {
+        for (auto& m : proc.getModel().moves)
+            if (m.uid == uid)
+            {
+                m.pattern = bits & 0xffffu;
+                m.patternOn = true;
             }
         proc.modelChanged (true);
         stack.refresh();

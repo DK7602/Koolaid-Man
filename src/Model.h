@@ -46,6 +46,10 @@ constexpr int numMoveTypes = (int) MoveType::NumTypes;
 /** Moves that play after the drop (on the downbeat) rather than inside the build zone. */
 inline bool playsAfterDrop (MoveType t) { return t == MoveType::Impact || t == MoveType::Boom; }
 
+/** Moves that can follow a 16-step pattern. */
+inline bool moveHasPattern (MoveType t) { return t == MoveType::Chops || t == MoveType::Stutter; }
+constexpr int patternSteps = 16;
+
 /** Which page of effect cards a move lives on: 0 main moves, 1 build & drop, 2 fx moves. */
 inline int cardPage (MoveType t) { return (int) t >= (int) MoveType::DelayThrow ? 2 : ((int) t >= (int) MoveType::Riser ? 1 : 0); }
 
@@ -84,6 +88,11 @@ struct Move
     // Linked to the Tension macro: fades in along the tension curve and follows the Tension knob
     bool tensionLink = false;
     bool locked = false;          // ROLL keeps locked moves
+
+    // Chops / Stutter step pattern: 16 steps of the move's division, on the song's grid,
+    // repeating (bit k = step k + 1). Off = the move's built-in rhythm.
+    bool patternOn = false;
+    juce::uint32 pattern = 0xffffu;
 
     // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
     int curve = 0;

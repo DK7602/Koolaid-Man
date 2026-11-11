@@ -31,6 +31,11 @@ public:
     void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
     void showCardPage (int p) { if (cards) cards->setPage (p); }
     void refreshForSnapshot() { refreshAll(); }
+    void showPatternEditorForSnapshot()
+    {
+        for (auto& m : proc.getModel().moves)
+            if (km::moveHasPattern (m.type)) { m.patternOn = true; m.pattern = 0x4949u; proc.modelChanged (true); refreshAll(); editPattern (m.uid); return; }
+    }
     void showTab (int t) { setTab (t); }
     void showCurveEditorForSnapshot()
     {
@@ -190,6 +195,7 @@ private:
     ManualView manual;
     GridEditor gridEditor;
     void editCurve (int uid);
+    void editPattern (int uid);
     void showTensionMenu();
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;

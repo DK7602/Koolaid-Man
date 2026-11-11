@@ -566,6 +566,84 @@ int main (int argc, char** argv)
         }
     }
 
+    // ---- step patterns: on steps chop / stutter, off steps follow the pattern exactly
+    {
+        auto tone = std::make_shared<ClipData>();
+        tone->sampleRate = sr;
+        tone->audio.setSize (2, (int) (sr * 60.0 / bpm * 16));
+        for (int i = 0; i < tone->audio.getNumSamples(); ++i)
+        {
+            // a tone that glides slowly, so a repeated slice never matches the original
+            const float v = 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * (300.0 + 40.0 * i / sr) * i / sr);
+            tone->audio.setSample (0, i, v);
+            tone->audio.setSample (1, i, v);
+        }
+        const double spbT = 60.0 / bpm * sr;
+        const int step = (int) std::llround (spbT * 0.25);   // 1/16
+        auto stepRms = [&] (const RenderResult& r, const juce::AudioBuffer<float>* ref, int k)
+        {
+            // RMS of step k (from the clip start), or of its difference to 'ref'; skips the ramps
+            const int a0 = k * step + step / 8, a1 = (k + 1) * step - step / 8;
+            double acc = 0.0;
+            for (int i = a0; i < a1; ++i)
+            {
+                const float v = r.mixAt (0, i) - (ref != nullptr ? ref->getSample (0, i) : 0.0f);
+                acc += (double) v * v;
+            }
+            return std::sqrt (acc / (a1 - a0));
+        };
+        const juce::uint32 pattern = 0x4949u;   // tresillo: steps 1, 4, 7, 9, 12, 15
+        auto on = [pattern] (int k) { return ((pattern >> (k % 16)) & 1u) != 0; };
+
+        {   // Chops gate, full depth: off steps silent, on steps at full level
+            DropModel m = model;
+            m.music = tone; m.zoneStart = 0.0; m.zoneEnd = 16.0;
+            Move ch = defaultMove (MoveType::Chops);
+            ch.mode = 0; ch.division = 2; ch.knob = 1.0f; ch.patternOn = true; ch.pattern = pattern;
+            m.moves = { ch };
+            auto r = renderDrop (m, nullptr, 1);
+            double worstOff = 0.0, weakestOn = 1.0;
+            for (int k = 4; k < 60; ++k)
+            {
+                const double v = stepRms (*r, nullptr, k);
+                if (on (k)) weakestOn = juce::jmin (weakestOn, v); else worstOff = juce::jmax (worstOff, v);
+            }
+            std::cout << "chops step pattern: on steps >= " << juce::String (weakestOn, 3) << ", off steps <= " << juce::String (worstOff, 4) << "\n";
+            if (worstOff > 0.005 || weakestOn < 0.15) { std::cout << "FAIL: chops step pattern\n"; ++failures; }
+            writeWav (outDir, "pattern-chops", full (*r), sr);
+        }
+        {   // Stutter: off steps are the original audio, on steps are repeats
+            DropModel m = model;
+            m.music = tone; m.zoneStart = 0.0; m.zoneEnd = 16.0;
+            Move st = defaultMove (MoveType::Stutter);
+            st.mode = 0; st.division = 2; st.knob = 0.75f; st.patternOn = true; st.pattern = pattern;   // 2 bars of stutter
+            m.moves = { st };
+            auto r = renderDrop (m, nullptr, 1);
+            double worstOff = 0.0, leastOn = 1.0;
+            const int firstStep = (int) ((16.0 - stutterSpanBeats (st.knob, 4.0)) * 4.0);
+            for (int k = firstStep + 1; k < 63; ++k)
+            {
+                const double v = stepRms (*r, &tone->audio, k);
+                if (on (k)) leastOn = juce::jmin (leastOn, v); else worstOff = juce::jmax (worstOff, v);
+            }
+            std::cout << "stutter step pattern: on steps differ by >= " << juce::String (leastOn, 3) << ", off steps by <= " << juce::String (worstOff, 4) << "\n";
+            if (worstOff > 0.005 || leastOn < 0.02) { std::cout << "FAIL: stutter step pattern\n"; ++failures; }
+            writeWav (outDir, "pattern-stutter", full (*r), sr);
+        }
+        {   // Shuffle: off steps untouched
+            DropModel m = model;
+            m.music = tone; m.zoneStart = 0.0; m.zoneEnd = 16.0;
+            Move ch = defaultMove (MoveType::Chops);
+            ch.mode = 1; ch.division = 2; ch.patternOn = true; ch.pattern = pattern;
+            m.moves = { ch };
+            auto r = renderDrop (m, nullptr, 1);
+            double worstOff = 0.0;
+            for (int k = 4; k < 63; ++k)
+                if (! on (k)) worstOff = juce::jmax (worstOff, stepRms (*r, &tone->audio, k));
+            if (worstOff > 0.005) { std::cout << "FAIL: shuffle pattern touched an off step (" << worstOff << ")\n"; ++failures; }
+        }
+    }
+
     // ---- studio-grade pitch: a pure 440 Hz tone shifted +12 st must come out as a clean 880 Hz
     {
         auto tone = std::make_shared<ClipData>();
@@ -627,6 +705,10 @@ int main (int argc, char** argv)
     // ---- state round trip of moves
     {
         auto moves = factoryPresets()[3].moves;
+        Move pat = defaultMove (MoveType::Chops);
+        pat.patternOn = true;
+        pat.pattern = 0x4949u;
+        moves.push_back (pat);
         auto back = movesFromTree (movesToTree (moves));
         if (back.size() != moves.size()) { std::cout << "FAIL moves round trip\n"; ++failures; }
         for (size_t i = 0; i < juce::jmin (back.size(), moves.size()); ++i)

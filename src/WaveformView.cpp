@@ -777,6 +777,25 @@ void WaveformView::drawLanes (juce::Graphics& g)
             g.setColour (sel ? juce::Colours::white : juce::Colours::white.withAlpha (0.5f));
             g.drawRoundedRectangle (bar.expanded (1.0f), 5.0f, sel ? 1.8f : 1.0f);
         }
+        // a step pattern, drawn as blocks along the bottom of the lane
+        if (km::moveHasPattern (mv.type) && mv.patternOn)
+        {
+            const double stepBeats = km::divisionToBeats (mv.division, m.beatsPerBar());
+            const auto reg = km::moveRegion (mv, m.zoneEnd - m.zoneStart, m.beatsPerBar());
+            const double b0 = m.zoneEnd + reg.first, b1 = m.zoneEnd + reg.second;
+            if (stepBeats > 0.0 && beatToX (b0 + stepBeats) - beatToX (b0) >= 2.0f)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.7f));
+                for (auto k = (juce::int64) std::floor (b0 / stepBeats); k * stepBeats < b1; ++k)
+                {
+                    if (((mv.pattern >> (int) (k % km::patternSteps)) & 1u) == 0) continue;
+                    const float sx0 = juce::jmax (bar.getX(), beatToX (k * stepBeats));
+                    const float sx1 = juce::jmin (bar.getRight(), beatToX ((k + 1) * stepBeats));
+                    if (sx1 - sx0 > 1.0f)
+                        g.fillRect (sx0 + 0.5f, bar.getBottom() - 5.0f, sx1 - sx0 - 1.0f, 3.0f);
+                }
+            }
+        }
         // the move's ramp, drawn inside its lane
         if (km::moveHasRamp (mv) && bar.getWidth() > 24.0f)
         {

@@ -794,6 +794,12 @@ void EffectCards::showTitleMenu (Card& card)
     for (int i = 0; i < modes.size(); ++i)
         menu.addItem (100 + i, modes[i], true, m.mode == i);
     menu.addSeparator();
+    if (km::moveHasPattern (t))
+    {
+        menu.addItem (3, "Step Pattern - Draw It...", true, m.patternOn && hasInstance (t));
+        menu.addItem (4, "Built-In Rhythm (No Pattern)", m.patternOn && hasInstance (t));
+        menu.addSeparator();
+    }
     if (hasInstance (t))
     {
         menu.addItem (1, "Add Another " + juce::String (km::typeName (t)));
@@ -810,6 +816,17 @@ void EffectCards::showTitleMenu (Card& card)
         {
             target (t).mode = r - 100;
             if (! hasInstance (t)) { togglePower (t); return; }
+        }
+        else if (r == 3 || r == 4)
+        {
+            if (! hasInstance (t)) togglePower (t);          // a pattern needs a move in the stack
+            auto& mv = target (t);
+            mv.patternOn = r == 3;
+            proc.modelChanged (true);
+            if (onStackChanged) onStackChanged();
+            if (r == 3 && onEditPattern) onEditPattern (mv.uid);
+            refresh();
+            return;
         }
         else if (r == 1)
         {

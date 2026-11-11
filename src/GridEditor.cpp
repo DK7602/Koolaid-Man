@@ -78,12 +78,23 @@ void GridEditor::layoutChips()
     else
     {
         auto preset = [this] (juce::uint32 b) { return [this, b] { bits = b; commit(); repaint(); }; };
-        add ("ALL ON", false, preset (0xffffffffu));
-        add ("OFFBEATS", false, preset (0xccccccccu));
-        add ("STRAIGHT 8THS", false, preset (0x55555555u));
-        add ("TRESILLO", false, preset (0x92929292u));
-        add ("BUILD", false, preset (0xfffff5d5u));
-        add ("CLEAR", false, preset (0x00000000u));
+        add ("ALL ON", false, preset (0xffffu));
+        add ("EVERY OTHER", false, preset (0x5555u));
+        add ("OFFBEATS", false, preset (0xaaaau));
+        add ("TRESILLO", false, preset (0x4949u));     // 3 + 3 + 2
+        add ("GALLOP", false, preset (0xddddu));       // x . x x
+        add ("BUILD", false, preset (0xf751u));        // sparse to dense
+        add ("RANDOM", false, [this]
+        {
+            auto& r = juce::Random::getSystemRandom();
+            juce::uint32 b = 1u;                          // always start on the one
+            for (int i = 1; i < numSteps; ++i)
+                if (r.nextFloat() < 0.6f) b |= 1u << i;
+            bits = b;
+            commit();
+            repaint();
+        });
+        add ("CLEAR", false, preset (0u));
     }
     add ("DONE", true, [this] { close(); });
     resized();
@@ -224,7 +235,7 @@ void GridEditor::paint (juce::Graphics& g)
     drawShadowText (g, title, { 20.0f, 8.0f, (float) getWidth() - 40.0f, headerH - 12.0f }, Skin::get().heavyItalic (24.0f),
                     juce::Justification::centredLeft, col::text);
     drawShadowText (g, mode == Mode::curve ? "drag to draw the curve (start of the move on the left, the end on the right)"
-                                           : "click steps on/off, drag to paint (one bar, repeats)",
+                                           : "click steps on/off, drag to paint - the pattern repeats",
                     { 20.0f, 8.0f, (float) getWidth() - 40.0f, headerH - 12.0f }, Skin::get().semibold (16.0f),
                     juce::Justification::centredRight, col::textDim);
 

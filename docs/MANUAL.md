@@ -108,11 +108,23 @@ Plays audio backwards into the drop. **Knob = Mix**, **Length** = how much of th
 
 ## Chops
 
-Cuts the build up rhythmically. **Knob = Depth**, **Rate** = chop size. Variations: **Gate** (on/off chopping), **Shuffle** (rearranges slices within each bar), **Tremolo** (smooth pulsing).
+Cuts the build up rhythmically. **Knob = Depth**, **Rate** = chop size. Variations: **Gate** (on/off chopping), **Shuffle** (rearranges slices within each bar), **Tremolo** (smooth pulsing). You can also draw your own step pattern (see below).
 
 ## Stutter
 
 Repeats a tiny slice of audio, like a DJ stutter. **Knob = Span** (how much of the end of the zone stutters, from 1 beat up to 4 bars), **Rate** = slice size. Variations: **Repeat**, **Accelerate** (the repeats get faster and faster into the drop), **Beat Repeat** (each beat stutters its own first slice).
+
+## Step patterns (Chops and Stutter)
+
+Chops and Stutter normally follow their own rhythm. To program your own, open the move's drop-down in the stack (or click the card's title) and pick **Step Pattern - Draw It...**. A 16-step grid opens over the cards:
+
+- **Click** a step to turn it on or off. **Drag** across steps to paint them.
+- Each step is one **Rate** long (1/16 by default, so 16 steps = one bar). The title shows how long the whole pattern is. It lines up with your song's bars and repeats.
+- **Chops**: on steps play and off steps are cut (Depth sets how much). Steps next to each other stay open, so you can program long and short gates. In **Tremolo**, each on step swells. In **Shuffle**, only the on steps get swapped for other slices.
+- **Stutter**: on steps stutter and off steps play your track as it was, so you can program rhythmic repeats like "stutter, play, stutter, stutter".
+- The chips along the bottom give you starting points: **All On**, **Every Other**, **Offbeats**, **Tresillo** (3+3+2), **Gallop**, **Build** (sparse to dense), **Random** and **Clear**. **Done** or Esc closes the grid.
+
+A green **STEPS** badge marks a move that uses a pattern, and the TIMELINE shows its steps in the lane. Pick **Built-In Rhythm (No Pattern)** to go back. Patterns are saved in presets and with your project.
 
 ## Pitch
 

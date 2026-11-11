@@ -17,6 +17,7 @@ public:
     std::function<void()> onStackEdited;      // moves changed
     std::function<void()> onSelectionChanged;
     std::function<void (int uid)> onEditCurve;      // open the custom-curve editor for a move
+    std::function<void (int uid)> onEditPattern;    // open the step-pattern editor for a move
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;

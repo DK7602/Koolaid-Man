@@ -367,6 +367,10 @@ juce::ValueTree Move::toTree() const
         t.setProperty ("tensionLink", true, nullptr);
     if (locked)
         t.setProperty ("locked", true, nullptr);
+    if (patternOn)
+        t.setProperty ("patternOn", true, nullptr);
+    if (pattern != 0xffffu)
+        t.setProperty ("pattern", (int) (pattern & 0xffffu), nullptr);
     if (curve != 0)
     {
         t.setProperty ("curve", curve, nullptr);
@@ -392,6 +396,8 @@ Move Move::fromTree (const juce::ValueTree& t)
     m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
     m.tensionLink = t.getProperty ("tensionLink", false);
     m.locked = t.getProperty ("locked", false);
+    m.patternOn = t.getProperty ("patternOn", false);
+    m.pattern = (juce::uint32) (int) t.getProperty ("pattern", 0xffff) & 0xffffu;
     m.curve = juce::jlimit (0, numCurveShapes - 1, (int) t.getProperty ("curve", 0));
     {
         auto pts = juce::StringArray::fromTokens (t.getProperty ("curvePoints").toString(), " ", "");
@@ -414,7 +420,8 @@ bool Move::operator== (const Move& o) const
     return type == o.type && enabled == o.enabled && division == o.division && semitones == o.semitones
         && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed
         && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd))
-        && curve == o.curve && (curve != curveCustom || curvePoints == o.curvePoints) && tensionLink == o.tensionLink && locked == o.locked;
+        && curve == o.curve && (curve != curveCustom || curvePoints == o.curvePoints) && tensionLink == o.tensionLink && locked == o.locked
+        && patternOn == o.patternOn && pattern == o.pattern;
 }
 
 juce::String keyName (int tonic, bool minor)

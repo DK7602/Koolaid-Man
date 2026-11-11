@@ -63,6 +63,8 @@ public:
             KoolaidEditor editor (*proc);
             if (args.contains ("curveedit"))
                 editor.showCurveEditorForSnapshot();
+            if (args.contains ("patternedit"))
+                editor.showPatternEditorForSnapshot();
             if (args.contains ("timeline"))
                 editor.showTab (3);
             if (args.contains ("page2"))
