@@ -6,6 +6,8 @@
 // Usage: KoolaidHostTest "<path to Koolaid Man.vst3>" beat.wav
 
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <thread>
+#include <atomic>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
@@ -37,7 +39,7 @@ namespace
 
     void waitForRender (KoolaidProcessor& p)
     {
-        for (int i = 0; i < 100 && (p.isRendering() || p.getResultVersion() == 0); ++i)
+        for (int i = 0; i < 600 && (p.isRendering() || p.getResultVersion() == 0); ++i)   // up to 30 s (sanitizer builds are slow)
             pump (50);
         pump (50);
     }
@@ -523,6 +525,65 @@ public:
             q.setPlayHead (nullptr);
             check (synced, "...with the in-sync preview playing the drop");
             check (load < 25.0, "audio-thread CPU, worst case (96 kHz, 64-sample blocks, all pads): " + juce::String (load, 1) + "% of one core");
+            q.releaseResources();
+        }
+
+        // ---- concurrency: a real audio thread keeps processing (sync preview, live pads) while
+        //      the UI edits, rolls, loads presets, flips A/B and re-renders underneath it
+        {
+            KoolaidProcessor q;
+            juce::MemoryBlock good;
+            p.getStateInformation (good);
+            q.setStateInformation (good.getData(), (int) good.getSize());
+            q.setPlayConfigDetails (2, 2, 48000.0, 256);
+            q.prepareToPlay (48000.0, 256);
+            waitForRender (q);
+            FakePlayHead aph;
+            q.setPlayHead (&aph);
+            std::atomic<bool> stop { false }, bad { false };
+            std::atomic<int> blocksDone { 0 };
+            // (worked out here: like a real host's, the audio thread only calls processBlock)
+            const double startPpq = (q.getModel().clipStartBar - 1) * 4.0 + q.getModel().zoneStart;
+            std::thread audio ([&, startPpq]
+            {
+                juce::AudioBuffer<float> b (2, 256);
+                juce::MidiBuffer mb;
+                int k = 0;
+                while (! stop.load())
+                {
+                    aph.set (startPpq + std::fmod (k * 256.0 * 130.0 / (60.0 * 48000.0), 8.0), true);
+                    for (int ch = 0; ch < 2; ++ch)
+                        for (int i = 0; i < 256; ++i) b.setSample (ch, i, 0.1f * (float) std::sin ((k * 256 + i) * 0.02));
+                    mb.clear();
+                    if (k % 50 == 0) mb.addEvent (juce::MidiMessage::noteOn (1, km::LiveEngine::firstNote + (k / 50) % 8, (juce::uint8) 90), 10);
+                    if (k % 50 == 25) mb.addEvent (juce::MidiMessage::noteOff (1, km::LiveEngine::firstNote + (k / 50) % 8), 3);
+                    q.processBlock (b, mb);
+                    for (int i = 0; i < 256; ++i) if (! std::isfinite (b.getSample (0, i))) bad.store (true);
+                    ++k;
+                    blocksDone.store (k);
+                }
+            });
+            juce::Random cr (5);
+            const auto presets = km::factoryPresets();
+            for (int step = 0; step < 60; ++step)
+            {
+                switch (step % 6)
+                {
+                    case 0: q.roll(); break;
+                    case 1: q.applyPreset (presets[(size_t) cr.nextInt ((int) presets.size())]); break;
+                    case 2: if (! q.getModel().moves.empty()) { q.getModel().moves.front().knob = cr.nextFloat(); q.modelChanged (true); } break;
+                    case 3: q.switchAB (step % 12 < 6 ? 1 : 0); break;
+                    case 4: q.setLivePad (cr.nextInt (km::LiveEngine::numPads), cr.nextBool()); break;
+                    default: q.getModel().zoneStart = juce::jmax (0.0, q.getModel().zoneEnd - 4.0 * (1 + cr.nextInt (3))); q.modelChanged (true); break;
+                }
+                pump (40);   // let renders land while the audio thread keeps going
+            }
+            for (int pad = 0; pad < km::LiveEngine::numPads; ++pad) q.setLivePad (pad, false);
+            stop.store (true);
+            audio.join();
+            q.setPlayHead (nullptr);
+            check (! bad.load() && blocksDone.load() > 100,
+                   "audio thread ran " + juce::String (blocksDone.load()) + " blocks cleanly while the UI edited, rolled, loaded presets and re-rendered");
             q.releaseResources();
         }
 

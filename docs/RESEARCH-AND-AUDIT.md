@@ -5,6 +5,8 @@
 **Short version:** Koolaid Man now passes the two industry validators used to judge plugins (**pluginval** at strictness 8 and **Apple's auval** in strict mode). The audit found and fixed **11 real problems**, two of them sound-quality bugs and one a 96 kHz detection failure. Against the competition, Koolaid Man's workflow is already unusual: it captures from your track, uses *your* snare/hats/808, and drops the result back on the grid. Its biggest gaps are **musical intelligence** (key-aware tuning, curves, a macro knob) and **content** (11 presets vs. hundreds).
 
 > **Update (later the same day): all 10 features below are now built.** See [Part 3](#part-3-what-shipped-since-the-audit) for what shipped and how each one was checked.
+>
+> **Update 2: whole-system audit.** Sanitizer builds, a click / DC / mono sweep of every move, dense-mix drum detection, damaged-project fuzzing, CPU and long-song tests found 10 more problems, all fixed. See [Part 4](#part-4-whole-system-audit-after-all-ten-features).
 
 ---
 
@@ -118,6 +120,48 @@ My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the bi
 ### Still open
 
 The gaps listed in Part 2 still apply. Above all, **nobody has listened yet**. The checks above prove timing, placement and levels, not taste. The new things most worth an ear are the barber-pole phaser, the vinyl moves, Pre-Verb and the live pads.
+
+---
+
+## Part 4: Whole-system audit (after all ten features)
+
+**Goal:** prove the whole plug-in delivers clean, professional results, not just that each feature works. Every check below is now an automated test, so it keeps being enforced in CI.
+
+### How it was checked
+
+| Check | Tool / method | Result |
+|---|---|---|
+| Memory safety | Full engine suite and the full plug-in host suite rebuilt with **AddressSanitizer + UndefinedBehaviorSanitizer** | **0 issues in Koolaid Man's code.** One harmless report inside JUCE's own FLAC encoder (a left shift of a negative number, defined behaviour in C++20) |
+| Thread safety | Host suite rebuilt with **ThreadSanitizer**, plus a new stress test: a real audio thread keeps processing (sync preview, live pads, MIDI) while the UI edits, rolls, loads presets, flips A/B and re-renders | **1 real race found and fixed** (see below). 85,000 audio blocks processed cleanly during constant editing |
+| Clicks | New test: every move and variation rendered on a smooth pad (no transients of its own), so any hard edge in the output can only come from the processing | **7 variations clicked → fixed → 0**, at 32, 44.1, 48, 88.2, 96 and 192 kHz |
+| DC offset / mono | New sweep over every move: added DC, and how the build and the fx layer fold down to mono | Stutter / Scratch DC and Pre-Verb mono fixed → all within limits |
+| Drum detection on real-world-style mixes | New test: a dense, soft-clipped mix with foreign drum sounds, ghost notes, a bassline in the kick's range, chords and a lead | Snare 100% / 100%. **Kick 46% found, 31% real → 100% / 100%** (rebuilt). Hats 87% found, 100% real |
+| Damaged projects | 140 garbage, truncated and bit-flipped project states (also under AddressSanitizer) | No crash; the plug-in keeps working; a good project still loads afterwards |
+| Audio-thread CPU | Worst case: 96 kHz, 64-sample blocks, sync preview playing the drop, all 8 live pads held | **1.6% of one core** |
+| Long songs | A 10-minute song | Analysis ~1.5–2 s, a render ~0.3 s (both on a background thread) |
+| Sample rates | The whole engine suite | Passes at **32, 44.1, 48, 88.2, 96 and 192 kHz** |
+| UI | Snapshots at 50%, 72%, 85%, 125%, 150%, 200%, both themes | No clipping or overlap; sharp at every size with the new 2× art |
+
+### Problems found and fixed
+
+| Problem | What you'd have heard / seen | Fix |
+|---|---|---|
+| **The build switched in mid-waveform** where the zone starts (gate, pitch shift, filters) | A click at the start of the build | 5 ms fade from the untouched audio into the build |
+| **Chops Shuffle seams** | Clicks where an untouched slice followed a swapped one | Slices spliced with crossfades wherever the source jumps |
+| **Delay Throw** | A tick repeated by every echo | The thrown beat fades into the delay |
+| **Vinyl Brake / live Tape Stop** | A small click as the record stops | The level fades to nothing instead of dropping off |
+| **Pitch (studio shifter)** | A small step ~30 ms before the drop (44.1 kHz) | The shifter no longer flushes: its input runs on as a mirror of its ending (no seam, no dip) |
+| **Kick detection on dense mixes** | Follow Kick pumping on bass notes and snares; late or missing kicks | Rebuilt detector (broad low-end rises, real low-end jump, snare cross-check, exact timing) |
+| **Render thread vs. unloading the plug-in** (ThreadSanitizer) | A possible crash when removing the plug-in or closing a project mid-render | The render thread is stopped before anything it uses is torn down |
+| **192 kHz rounding** | An export with an extra, silent bar after an abrupt cut | A few samples of rounding no longer add a bar |
+| Stutter / Scratch **DC offset** | A small offset (up to -49 dB) eating headroom | Looped slices centred; a gentle DC blocker on scratches |
+| **Pre-Verb "Drop Bar" mono** | -6.3 dB when summed to mono | Slightly narrower swell |
+
+### Still open
+
+1. **Your ears.** Every check above is measurement. Taste, and how it all sits in your songs, still needs a listen in Cubase.
+2. **Hats on dense mixes** are found 87% of the time (the quietest 16ths are missed). They're only used to pick the hat sound for Hat Detect, so this is fine.
+3. Unchanged from Part 2: bouncing in the same instant as a tweak, code signing, AAX/CLAP.
 
 ---
 

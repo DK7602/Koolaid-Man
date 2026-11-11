@@ -99,6 +99,9 @@ KoolaidProcessor::KoolaidProcessor()
 KoolaidProcessor::~KoolaidProcessor()
 {
     stopTimer();
+    // stop the render thread first: it may be about to hand over a result (found by
+    // ThreadSanitizer: clearing the callback while the thread reads it could crash on unload)
+    renderThread.shutdown();
     renderThread.onResult = nullptr;
     cancelPendingUpdate();
 }

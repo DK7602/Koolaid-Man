@@ -86,6 +86,10 @@ public:
 
     void request (const DropModel& model, int requestId = 0);
 
+    /** Stops the thread (waiting for a render in progress to finish). Call before tearing down
+        anything onResult uses: after this, onResult is never called again. */
+    void shutdown();
+
     /** Called on the render thread when a result is ready. */
     std::function<void (ResultPtr)> onResult;
 

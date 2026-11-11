@@ -37,7 +37,7 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
             tail = juce::jmax (tail, (int) std::llround (endBeats * spb));
         }
     int total = clipLen;
-    if (res->zoneEnd + tail > clipLen)
+    if (res->zoneEnd + tail > clipLen + 8)   // (a few samples of rounding mustn't add a whole extra bar)
     {
         const double barSamples = model.beatsPerBar() * spb;
         total = (int) std::llround (std::ceil ((res->zoneEnd + tail) / barSamples - 1.0e-6) * barSamples);
@@ -351,9 +351,14 @@ RenderThread::RenderThread() : juce::Thread ("Koolaid render")
 
 RenderThread::~RenderThread()
 {
+    shutdown();
+}
+
+void RenderThread::shutdown()
+{
     signalThreadShouldExit();
     wake.signal();
-    stopThread (4000);
+    stopThread (15000);   // a render finishes well within this (a whole song takes ~2 s)
 }
 
 void RenderThread::request (const DropModel& model, int requestId)
