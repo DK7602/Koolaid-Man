@@ -120,6 +120,49 @@ static juce::AudioBuffer<float> makeSong (double sr, double bpm, const std::vect
     return b;
 }
 
+/** Click finder: samples where the 3rd difference (a discontinuity detector) of 'y' jumps far
+    above its local level and the original 'x' has no such spike there. Returns the count and
+    the worst one (in multiples of the local level). */
+struct ClickReport { int count = 0; double worst = 0.0; juce::int64 where = -1; };
+static ClickReport findClicks (const juce::AudioBuffer<float>& y, const juce::AudioBuffer<float>& x, int from, int to)
+{
+    ClickReport rep;
+    const int n = y.getNumSamples();
+    from = juce::jmax (3, from);
+    to = juce::jmin (n, to);
+    if (to - from < 1200) return rep;
+    for (int ch = 0; ch < y.getNumChannels(); ++ch)
+    {
+        std::vector<float> d ((size_t) n, 0.0f), dx ((size_t) n, 0.0f);
+        const float* a = y.getReadPointer (ch);
+        const float* o = x.getReadPointer (juce::jmin (ch, x.getNumChannels() - 1));
+        const int xn = x.getNumSamples();
+        auto xs = [&] (int i) { return i < xn ? o[i] : 0.0f; };
+        for (int i = 3; i < n; ++i)
+        {
+            d[(size_t) i] = std::abs (a[i] - 3.0f * a[i - 1] + 3.0f * a[i - 2] - a[i - 3]);
+            dx[(size_t) i] = std::abs (xs (i) - 3.0f * xs (i - 1) + 3.0f * xs (i - 2) - xs (i - 3));
+        }
+        // running mean of the 3rd difference over +-10 ms
+        const int w = 480;
+        std::vector<double> pre ((size_t) n + 1, 0.0);
+        for (int i = 0; i < n; ++i) pre[(size_t) i + 1] = pre[(size_t) i] + d[(size_t) i];
+        for (int i = from; i < to; ++i)
+        {
+            const int lo = juce::jmax (0, i - w), hi = juce::jmin (n, i + w);
+            const double local = (pre[(size_t) hi] - pre[(size_t) lo] - d[(size_t) i]) / (hi - lo - 1) + 1.0e-6;
+            const double ratio = d[(size_t) i] / local;
+            if (ratio > 25.0 && d[(size_t) i] > 0.02f && dx[(size_t) i] < 0.5f * d[(size_t) i])
+            {
+                ++rep.count;
+                if (ratio > rep.worst) { rep.worst = ratio; rep.where = i; }
+                i += 64;   // count each click once
+            }
+        }
+    }
+    return rep;
+}
+
 static bool checkBuffer (const juce::AudioBuffer<float>& b, const juce::String& what)
 {
     float peak = 0;
@@ -235,6 +278,135 @@ int main (int argc, char** argv)
             if (outside > 1.0e-6) { std::cout << "FAIL: " << name << " touched audio before the zone\n"; ++failures; }
             writeWav (outDir, "move - " + name, full (*r), sr);
         }
+    }
+
+    // ---- audit sweep: clicks, DC and mono compatibility for every move and variation
+    {
+        std::cout << "audit sweep (clicks / DC / mono):\n";
+        int sweepFails = 0;
+        for (int t = 0; t < numMoveTypes; ++t)
+        {
+            const auto modes = modeNames ((MoveType) t);
+            for (int mode = 0; mode < modes.size(); ++mode)
+            {
+                DropModel m = model;
+                Move mv = defaultMove ((MoveType) t);
+                mv.mode = mode;
+                m.moves = { mv };
+                auto r = renderDrop (m, analysis, 1);
+                const auto y = full (*r);
+                const int z0 = (int) r->zoneStart, z1 = (int) r->zoneEnd, len = y.getNumSamples();
+                const auto clicks = findClicks (y, clip->audio, z0 - 2000, len);
+                // DC: the output's offset over the build (and tail) beyond what the original already had
+                double my = 0.0, mx = 0.0;
+                for (int i = z0; i < len; ++i)
+                {
+                    my += 0.5 * ((double) y.getSample (0, i) + y.getSample (1, i));
+                    if (i < clip->audio.getNumSamples()) mx += 0.5 * ((double) clip->audio.getSample (0, i) + clip->audio.getSample (1, i));
+                }
+                my /= juce::jmax (1, len - z0);
+                mx /= juce::jmax (1, len - z0);
+                const double dc = std::abs (my) > std::abs (mx) ? std::abs (my) - std::abs (mx) : 0.0;
+                // mono compatibility of the added fx layer: mono-sum level vs stereo level
+                double st = 0.0, mo = 0.0;
+                for (juce::int64 p = z0; p < r->length; ++p)
+                {
+                    const double l = r->sampleAt (RenderResult::Layer::fx, 0, p), rr = r->sampleAt (RenderResult::Layer::fx, 1, p);
+                    st += 0.5 * (l * l + rr * rr);
+                    mo += 0.25 * (l + rr) * (l + rr);
+                }
+                const double monoDb = st > 1.0e-9 ? 10.0 * std::log10 ((mo + 1.0e-12) / st) : 0.0;
+                // and of the whole build (vs the original's own mono fold-down)
+                auto foldDb = [&] (const juce::AudioBuffer<float>& b, int a0, int a1)
+                {
+                    double s2 = 0.0, m2 = 0.0;
+                    for (int i = a0; i < a1; ++i)
+                    {
+                        const double l = b.getSample (0, i), rr = b.getSample (1, i);
+                        s2 += 0.5 * (l * l + rr * rr); m2 += 0.25 * (l + rr) * (l + rr);
+                    }
+                    return s2 > 1.0e-9 ? 10.0 * std::log10 ((m2 + 1.0e-12) / s2) : 0.0;
+                };
+                const double buildFold = foldDb (y, z0, z1) - foldDb (clip->audio, z0, z1);
+                const juce::String name = mv.stackLabel() + " [" + modes[mode] + "]";
+                // (clicks on the drum beat are only reported: echoes and repeats copy its own sharp
+                // attacks, so the real click check is the smooth-pad one below)
+                const bool bad = std::abs (dc) > 1.0e-3 || monoDb < -6.0 || buildFold < -3.0;
+                if (bad || juce::String (std::getenv ("KOOLAID_SWEEP_VERBOSE") != nullptr ? "1" : "").isNotEmpty())
+                    std::cout << "  " << name.paddedRight (' ', 46) << " clicks " << clicks.count
+                              << (clicks.count > 0 ? " (worst " + juce::String (clicks.worst, 0) + "x at " + juce::String ((double) (clicks.where - z1) / sr, 3) + " s from drop)" : juce::String())
+                              << "  DC " << juce::String (dc, 5) << "  fx mono " << juce::String (monoDb, 1) << " dB  build fold " << juce::String (buildFold, 1) << " dB"
+                              << (bad ? "   <-- CHECK" : "") << "\n";
+                if (bad) ++sweepFails;
+            }
+        }
+        std::cout << "audit sweep: " << sweepFails << " move variations flagged\n";
+
+        // clicks, measured properly: on a smooth pad (no transients of its own), any hard edge in
+        // the output comes from the processing. Moves that generate percussive / noisy sound by
+        // design (drums, hats, noise risers, crashes, impacts, bitcrush) are left out.
+        auto pad = std::make_shared<ClipData>();
+        pad->sampleRate = sr;
+        pad->audio.setSize (2, clip->audio.getNumSamples());
+        for (int i = 0; i < pad->audio.getNumSamples(); ++i)
+        {
+            const double t = i / sr, two = juce::MathConstants<double>::twoPi;
+            const double env = 0.75 + 0.25 * std::sin (two * 0.3 * t);
+            double l = 0.0, r = 0.0;
+            const double fr[5] = { 110.0, 165.0, 220.0, 330.0, 440.0 };
+            for (int k = 0; k < 5; ++k)
+            {
+                l += 0.09 * std::sin (two * fr[k] * t + k);
+                r += 0.09 * std::sin (two * fr[k] * t + k + 0.7);
+            }
+            pad->audio.setSample (0, i, (float) (l * env));
+            pad->audio.setSample (1, i, (float) (r * env));
+        }
+        int clickFails = 0;
+        for (int t = 0; t < numMoveTypes; ++t)
+        {
+            const auto type = (MoveType) t;
+            if (type == MoveType::DrumMoves || type == MoveType::Hats || type == MoveType::Riser || type == MoveType::RevCrash
+                || type == MoveType::Impact || type == MoveType::Bitcrush)
+                continue;
+            const auto modes = modeNames (type);
+            for (int mode = 0; mode < modes.size(); ++mode)
+            {
+                if (type == MoveType::Scratch && mode == 1) continue;   // a rewind spins at 12x: genuinely bright, not a click
+                if (type == MoveType::PreVerb && mode == 2) continue;   // a reversed snare reverb is noise by design
+                DropModel m = model;
+                m.music = pad;
+                Move mv = defaultMove (type);
+                mv.mode = mode;
+                m.moves = { mv };
+                auto r = renderDrop (m, nullptr, 1);
+                // the vinyl brake's needle crackle clicks on purpose: check the record itself (music layer)
+                const auto y = type == MoveType::Scratch && mode == 2 ? r->copyOf (RenderResult::Layer::music, 0, r->length) : full (*r);
+                int count = 0;
+                double worst = 0.0;
+                juce::int64 where = -1;
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    const float* a = y.getReadPointer (ch);
+                    for (int i = juce::jmax (3, (int) r->zoneStart - 2000); i < y.getNumSamples(); ++i)
+                    {
+                        const double d = std::abs (a[i] - 3.0 * a[i - 1] + 3.0 * a[i - 2] - a[i - 3]);
+                        if (d > 0.02) { ++count; if (d > worst) { worst = d; where = i; } i += 32; }
+                    }
+                }
+                const juce::String name = mv.stackLabel() + " [" + modes[mode] + "]";
+                if (count > 0)
+                {
+                    std::cout << "  click: " << name.paddedRight (' ', 46) << count << " hard edges, worst step " << juce::String (worst, 4)
+                              << " at " << juce::String ((double) (where - r->zoneEnd) / sr, 4) << " s from the drop\n";
+                    ++clickFails;
+                    writeWav (outDir, "click - " + name, y, sr);
+                }
+            }
+        }
+        std::cout << "click check on a smooth pad: " << clickFails << " move variations with hard edges\n";
+        if (clickFails > 0) { std::cout << "FAIL: clicks\n"; failures += clickFails; }
+        if (sweepFails > 0) { std::cout << "FAIL: DC / mono compatibility\n"; failures += sweepFails; }
     }
 
     // ---- presets

@@ -181,6 +181,24 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         }
     }
 
+    // The build starts without a click: fade from the untouched audio into the processed
+    // build over 5 ms (a gate, pitch shift or filter can't switch in mid-waveform)
+    {
+        const int entry = juce::jmin (n / 4, (int) (0.005 * sr) + 1);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto* mm = main.getWritePointer (ch);
+            auto* ff = fx.getWritePointer (ch);
+            auto* oo = original.getReadPointer (ch);
+            for (int i = 0; i < entry; ++i)
+            {
+                const float a = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::pi * (float) i / (float) entry);
+                mm[i] = oo[i] + (mm[i] - oo[i]) * a;
+                ff[i] *= a;
+            }
+        }
+    }
+
     // Loudness guard: a build should rise, not jump. Each beat may be at most ~3.5 dB above
     // the original audio (or the zone's average, whichever is louder); smooth gain between beats.
     {

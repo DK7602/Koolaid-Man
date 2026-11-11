@@ -131,11 +131,19 @@ namespace
         st.presetDefault (numCh, (float) sr);
         const int inLat = st.inputLatency(), outLat = st.outputLatency();
 
-        Buffer in (numCh, n + inLat), out (numCh, n + outLat);
-        in.clear();
+        // the input runs on past the end as a mirror image of its last moments, so the analysis
+        // window never sees silence (no dip before the drop) and we never need flush() (whose
+        // hand-over from the normal output left a small step one interval before the end)
+        const int pad = inLat + outLat;
+        Buffer in (numCh, n + pad), out (numCh, n + outLat);
         out.clear();
         for (int ch = 0; ch < numCh; ++ch)
+        {
             in.copyFrom (ch, 0, b, ch, 0, n);
+            auto* d = in.getWritePointer (ch);
+            for (int k = 0; k < pad; ++k)
+                d[n + k] = d[juce::jmax (0, n - 1 - (k % n))];
+        }
 
         std::vector<float*> ip ((size_t) numCh), op ((size_t) numCh);
         auto point = [numCh] (Buffer& buf, int offset, std::vector<float*>& v)
@@ -150,9 +158,9 @@ namespace
 
         const int block = 256;
         int inPos = inLat, outPos = 0;
-        while (outPos < n)
+        while (outPos < n + outLat)
         {
-            const int len = juce::jmin (block, n - outPos);
+            const int len = juce::jmin (block, n + outLat - outPos);
             st.setTransposeSemitones ((float) semisAt (juce::jlimit (0, n - 1, outPos)));
             point (in, inPos, ip);
             point (out, outPos, op);
@@ -160,8 +168,6 @@ namespace
             inPos += len;
             outPos += len;
         }
-        point (out, outPos, op);
-        st.flush (op.data(), outLat);
 
         // output has outputLatency() samples of pre-roll
         for (int ch = 0; ch < numCh; ++ch)
@@ -408,6 +414,9 @@ namespace
             juce::Random rng ((juce::int64) m.seed * 7919 + 17);
             const int slicesPerBar = juce::jmax (1, (int) std::round (c.beatsPerBar * c.samplesPerBeat / step));
             const int numSlices = (n + step - 1) / step;
+            // pick each slice's source first, then splice them with short crossfades wherever
+            // the source jumps (an untouched slice after a swapped one must not start mid-wave)
+            std::vector<int> fromOf ((size_t) numSlices);
             for (int s = 0; s < numSlices; ++s)
             {
                 int from = s;
@@ -420,17 +429,28 @@ namespace
                     from = juce::jmin (numSlices - 1, barStart + rng.nextInt (slicesPerBar));
                     from = juce::jmin (from, s);   // never borrow from the future (keeps the drop clean)
                 }
-                const int len = juce::jmin (step, n - s * step, n - from * step);
-                for (int ch = 0; ch < b.getNumChannels(); ++ch)
+                fromOf[(size_t) s] = from;
+            }
+            for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            {
+                auto* d = b.getWritePointer (ch);
+                auto* sp = src.getReadPointer (ch);
+                for (int s = 0; s < numSlices; ++s)
                 {
-                    auto* d = b.getWritePointer (ch);
-                    auto* sp = src.getReadPointer (ch);
+                    const int from = fromOf[(size_t) s];
+                    const int len = juce::jmin (step, n - s * step, n - from * step);
+                    // where the previous slice's source would have carried on
+                    const bool jump = s > 0 && fromOf[(size_t) s - 1] + 1 != from;
+                    const int prevNext = s > 0 ? (fromOf[(size_t) s - 1] + 1) * step : 0;
                     for (int i = 0; i < len; ++i)
                     {
-                        float g = 1.0f;
-                        if (i < ramp) g = (float) i / ramp;
-                        else if (i > len - ramp) g = (float) (len - i) / ramp;
-                        d[s * step + i] = from == s ? sp[s * step + i] : sp[from * step + i] * g;
+                        float v = sp[from * step + i];
+                        if (jump && i < ramp && prevNext + i < n)
+                        {
+                            const float a = (float) i / (float) ramp;
+                            v = sp[prevNext + i] * (1.0f - a) + v * a;
+                        }
+                        d[s * step + i] = v;
                     }
                 }
             }
@@ -494,6 +514,10 @@ namespace
         {
             auto* d = b.getWritePointer (ch);
             auto* s = src.getReadPointer (ch);
+            // a looped slice repeats its own average: take it out so the stutter sits on centre
+            double mean = 0.0;
+            for (int k = 0; k < sliceLen; ++k) mean += s[juce::jlimit (0, src.getNumSamples() - 1, sliceStart + k)];
+            const float dc = (float) (mean / sliceLen);
             for (int i = from; i < to; ++i)
             {
                 const int k = (i - from) % sliceLen;
@@ -501,7 +525,7 @@ namespace
                 if (k < fade) g = (float) k / fade;
                 else if (k > sliceLen - fade) g = (float) (sliceLen - k) / fade;
                 const int si = juce::jlimit (0, src.getNumSamples() - 1, sliceStart + k);
-                d[i] = s[si] * g;
+                d[i] = (s[si] - dc) * g;
             }
         }
     }
@@ -1314,7 +1338,11 @@ namespace
             for (int i = 0; i < L; ++i)
             {
                 float g;
-                if (throwMode) g = i < throwLen - throwFade ? 1.0f : (i < throwLen ? (float) (throwLen - i) / throwFade : 0.0f);
+                if (throwMode)
+                {
+                    g = i < throwLen - throwFade ? 1.0f : (i < throwLen ? (float) (throwLen - i) / throwFade : 0.0f);
+                    g *= juce::jmin (1.0f, (float) i / (float) juce::jmax (1, throwFade / 2));   // no hard edge for the echoes to repeat
+                }
                 else           g = (float) shapeCurve (m, (double) i / L, 1.5);
                 sd[i] = (a[i] + f[i]) * g;
             }
@@ -1684,9 +1712,27 @@ namespace
                 float lo, bp, hi;
                 tone.process (v, lo, bp, hi);
                 float g = std::pow (juce::jmin (1.0f, av * (m.mode == 0 ? 1.3f : 1.0f)), m.mode == 0 ? 0.5f : 0.25f);
+                if (m.mode == 2) g *= juce::jmin (1.0f, av / 0.04f);   // the brake fades to nothing instead of dropping off
                 g *= m.mode == 0 ? 0.8f : (m.mode == 1 ? 0.85f : 1.0f);
                 if (i >= L - tail) g *= (float) (L - i) / tail;
                 d[i] = lo * g;
+            }
+        }
+        if (m.mode == 0)
+        {
+            // scratching back and forth over one spot leaves an offset: a gentle DC blocker (15 Hz)
+            const float R = 1.0f - (float) (juce::MathConstants<double>::twoPi * 15.0 / sr);
+            for (int ch = 0; ch < b.getNumChannels(); ++ch)
+            {
+                auto* d = b.getWritePointer (ch, start);
+                float xPrev = d[0], yPrev = 0.0f;
+                for (int i = 0; i < L; ++i)
+                {
+                    const float y = d[i] - xPrev + R * yPrev;
+                    xPrev = d[i];
+                    yPrev = y;
+                    d[i] = y;
+                }
             }
         }
         crossfadeInto (b, src, start, juce::jmin (L / 8, (int) (0.004 * sr) + 1));
@@ -1786,6 +1832,14 @@ namespace
             auto* d = wet.getWritePointer (ch);
             std::reverse (d, d + L);                                   // the tail now swells up to the drop
             for (int i = 0; i < L; ++i) d[i] *= (float) shapeCurve (m, (double) i / L, 0.0);
+        }
+        // a little narrower than the raw reverb, so the swell still comes through in mono
+        for (int i = 0; i < L; ++i)
+        {
+            const float l = wet.getSample (0, i), r = wet.getSample (1, i);
+            const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * 0.7f;
+            wet.setSample (0, i, mid + side);
+            wet.setSample (1, i, mid - side);
         }
         wet.applyGainRamp (0, juce::jmin (L / 10, (int) (0.05 * sr)), 0.0f, 1.0f);
         fadeOutEnd (wet, 0, L, (int) (0.002 * sr) + 1);

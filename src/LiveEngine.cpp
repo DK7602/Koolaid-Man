@@ -248,7 +248,7 @@ void LiveEngine::process (juce::AudioBuffer<float>& io, int start, int num, cons
                 tapeRate = t < 1.0 ? std::pow (1.0 - t, 1.2) : 0.0;
             }
             const float coef = (float) juce::jlimit (0.02, 1.0, tapeRate * 1.2);
-            const float g = (float) std::pow (tapeRate, 0.25);
+            const float g = (float) std::pow (tapeRate, 0.25) * (float) juce::jmin (1.0, tapeRate / 0.04);   // fades to nothing, no drop-off
             for (int ch = 0; ch < 2; ++ch)
             {
                 tapeLp[ch] += (histAt (ch, tapeRead) - tapeLp[ch]) * coef;
