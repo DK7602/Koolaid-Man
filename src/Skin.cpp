@@ -21,18 +21,64 @@ static juce::Image loadArt (const void* data, int size)
 /** A greyed-out copy of the art for "off" states (darker in dark mode, paler in light mode). */
 static juce::Image makeOff (const juce::Image& src, bool light)
 {
+    // straight per-pixel arithmetic (the art is opaque): mostly-grey, then darker (dark theme)
+    // or washed toward the light panel colour (light theme). Fast enough for the 2x art too.
     auto off = src.createCopy();
     juce::Image::BitmapData bd (off, juce::Image::BitmapData::readWrite);
+    const float wr = 0xea / 255.0f, wg = 0xe6 / 255.0f, wb = 0xf2 / 255.0f;
     for (int y = 0; y < bd.height; ++y)
+    {
+        auto* line = bd.getLinePointer (y);
         for (int x = 0; x < bd.width; ++x)
         {
-            const auto c = bd.getPixelColour (x, y);
-            const float lum = 0.3f * c.getFloatRed() + 0.55f * c.getFloatGreen() + 0.15f * c.getFloatBlue();
-            const auto grey = juce::Colour::fromFloatRGBA (lum, lum, lum * 1.08f, c.getFloatAlpha());
-            const auto g = c.interpolatedWith (grey, 0.88f);
-            bd.setPixelColour (x, y, light ? g.interpolatedWith (juce::Colour (0xffeae6f2), 0.45f) : g.withMultipliedBrightness (0.55f));
+            auto* p = reinterpret_cast<juce::PixelARGB*> (line + x * bd.pixelStride);
+            const float r = p->getRed() / 255.0f, g = p->getGreen() / 255.0f, b = p->getBlue() / 255.0f;
+            const float lum = 0.3f * r + 0.55f * g + 0.15f * b;
+            float nr = r + (lum - r) * 0.88f, ng = g + (lum - g) * 0.88f, nb = b + (juce::jmin (1.0f, lum * 1.08f) - b) * 0.88f;
+            if (light) { nr += (wr - nr) * 0.45f; ng += (wg - ng) * 0.45f; nb += (wb - nb) * 0.45f; }
+            else       { nr *= 0.55f; ng *= 0.55f; nb *= 0.55f; }
+            p->setARGB (p->getAlpha(), (juce::uint8) juce::roundToInt (nr * 255.0f), (juce::uint8) juce::roundToInt (ng * 255.0f),
+                        (juce::uint8) juce::roundToInt (nb * 255.0f));
         }
+    }
     return off;
+}
+
+const juce::Image& Skin::image2x() const
+{
+    const int t = theme == Theme::light ? 1 : 0;
+    if (! hi[t].isValid())
+    {
+        hi[t] = t == 1 ? loadArt (KoolaidBinary::skin_light_2x_png, KoolaidBinary::skin_light_2x_pngSize)
+                       : loadArt (KoolaidBinary::skin_2x_png, KoolaidBinary::skin_2x_pngSize);
+        if (hi[t].getWidth() != designW * 2)   // missing: fall back to the 1x art, upscaled
+            hi[t] = image().rescaled (designW * 2, designH * 2, juce::Graphics::highResamplingQuality);
+    }
+    return hi[t];
+}
+
+const juce::Image& Skin::offImage2x() const
+{
+    const int t = theme == Theme::light ? 1 : 0;
+    if (! hiOff[t].isValid())
+        hiOff[t] = makeOff (image2x(), t == 1);
+    return hiOff[t];
+}
+
+void Skin::drawArt (juce::Graphics& g, juce::Rectangle<int> src, juce::Rectangle<int> dest, bool offState) const
+{
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+    if (wantsHiRes (g))
+    {
+        const auto& img = offState ? offImage2x() : image2x();
+        g.drawImage (img, dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(),
+                     src.getX() * 2, src.getY() * 2, src.getWidth() * 2, src.getHeight() * 2);
+    }
+    else
+    {
+        g.drawImage (offState ? offImage() : image(), dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(),
+                     src.getX(), src.getY(), src.getWidth(), src.getHeight());
+    }
 }
 
 Skin::Skin()
@@ -65,6 +111,10 @@ void Skin::setTheme (Theme t)
     if (t == theme) return;
     theme = t;
     ++themeVersion;
+    // free the other theme's 2x art (it reloads if you switch back)
+    const int other = t == Theme::light ? 0 : 1;
+    hi[other] = {};
+    hiOff[other] = {};
     applyColours();
     if (prefs != nullptr)
     {
@@ -317,15 +367,13 @@ void SkinButton::paint (juce::Graphics& g)
     auto local = getLocalBounds().toFloat();
     if (! artSource.isEmpty())
     {
-        const auto& img = lit ? Skin::get().image() : Skin::get().offImage();
-        g.drawImage (img, 0, 0, getWidth(), getHeight(), artSource.getX(), artSource.getY(), artSource.getWidth(), artSource.getHeight());
+        Skin::get().drawArt (g, artSource, getLocalBounds(), ! lit);
     }
     else if (! lit)
     {
         auto region = litRegion.isEmpty() ? getBounds() : litRegion;
         auto dest = region.translated (-getX(), -getY());
-        g.drawImage (Skin::get().offImage(), dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(),
-                     region.getX(), region.getY(), region.getWidth(), region.getHeight());
+        Skin::get().drawArt (g, region, dest, true);
     }
     if (! glow.isTransparent())
     {

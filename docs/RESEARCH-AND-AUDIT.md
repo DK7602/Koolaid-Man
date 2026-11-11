@@ -87,7 +87,7 @@ My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the bi
 2. **Detection on real, dense mixes.** The tests use a synthetic beat. **Best next step:** send me 3–5 of your two-tracks (or the exports you're happy/unhappy with) and I'll build a real-music test set and tune detection against it.
 3. **Bouncing right after a tweak.** If you export a mixdown in Cubase before Koolaid Man finishes re-rendering (≈0.1–0.4 s), the previous version is bounced. Making offline bounces wait is possible but risks deadlocks in some hosts, so I left it. Just give it a beat after tweaking.
 4. **Capture reserves memory while armed** (~92 MB at 48 kHz for up to 4 minutes; 184 MB at 96 kHz), released afterwards.
-5. **HiDPI sharpness.** A 2× version of the artwork would keep it razor-sharp on 4K screens.
+5. ~~**HiDPI sharpness.**~~ **Done:** the artwork now ships at 2× (AI-upscaled with Real-ESRGAN from the original mockup, both themes), used automatically on HiDPI screens and big windows.
 6. **Code signing**, **AAX/CLAP**, **accessibility**, **preset tags/search**: only matter for selling or for other DAWs.
 
 ---

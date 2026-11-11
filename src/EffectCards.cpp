@@ -113,64 +113,66 @@ namespace
         return c.withHue (std::fmod (targetHue + d + 1.0f, 1.0f));
     }
 
-    /** Builds a wide card (w x h + 4 px glow margin) from the Atmos card art. */
-    juce::Image buildWideCard (int w, int h, float hue, juce::Point<int> knobAt)
+    /** Builds a wide card (w x h + 4 px glow margin, in design pixels) from the Atmos card art.
+        k = 1 builds it at design size from the 1x art, k = 2 at twice the size from the 2x art. */
+    juce::Image buildWideCard (int w, int h, float hue, juce::Point<int> knobAt, int k)
     {
-        const auto& art = Skin::get().image();
-        const juce::Rectangle<int> src (1233, 748, 189, 117);   // Atmos card + 4 px margin
+        const auto& art = k == 2 ? Skin::get().image2x() : Skin::get().image();
+        const juce::Rectangle<int> src (1233 * k, 748 * k, 189 * k, 117 * k);   // Atmos card + 4 px margin
         auto s = art.getClippedImage (src).createCopy().convertedToFormat (juce::Image::ARGB);
         const int sw = s.getWidth(), sh = s.getHeight();
+        const int mx = 13 * k, my = 9 * k;
         {
             // clear the card's contents, keeping its border, gradient and power button
             juce::Image::BitmapData bd (s, juce::Image::BitmapData::readWrite);
-            const juce::Rectangle<int> power (1390 - 1233 - 3, 758 - 748 - 3, 31, 28);
+            const juce::Rectangle<int> power ((1390 - 1233 - 3) * k, (758 - 748 - 3) * k, 31 * k, 28 * k);
             // each row's typical background colour (median brightness), then smoothed
             // vertically, so clearing the title / icon / knobs leaves no streaks or bands
             std::vector<juce::Colour> rowCol ((size_t) sh);
-            for (int y = 9; y < sh - 9; ++y)
+            for (int y = my; y < sh - my; ++y)
             {
                 std::vector<juce::Colour> row;
-                for (int x = 13; x < sw - 13; ++x)
+                for (int x = mx; x < sw - mx; ++x)
                     if (! power.contains (x, y)) row.push_back (bd.getPixelColour (x, y));
                 std::sort (row.begin(), row.end(), [] (juce::Colour a, juce::Colour b) { return a.getPerceivedBrightness() < b.getPerceivedBrightness(); });
-                rowCol[(size_t) y] = row.empty() ? bd.getPixelColour (12, y) : row[row.size() / 2];
+                rowCol[(size_t) y] = row.empty() ? bd.getPixelColour (mx - 1, y) : row[row.size() / 2];
             }
             std::vector<juce::Colour> smooth ((size_t) sh);
-            for (int y = 9; y < sh - 9; ++y)
+            for (int y = my; y < sh - my; ++y)
             {
                 float r = 0, g = 0, b = 0; int cnt = 0;
-                for (int k = juce::jmax (9, y - 7); k <= juce::jmin (sh - 10, y + 7); ++k)
+                for (int j = juce::jmax (my, y - 7 * k); j <= juce::jmin (sh - my - 1, y + 7 * k); ++j)
                 {
-                    r += rowCol[(size_t) k].getFloatRed(); g += rowCol[(size_t) k].getFloatGreen(); b += rowCol[(size_t) k].getFloatBlue(); ++cnt;
+                    r += rowCol[(size_t) j].getFloatRed(); g += rowCol[(size_t) j].getFloatGreen(); b += rowCol[(size_t) j].getFloatBlue(); ++cnt;
                 }
                 smooth[(size_t) y] = juce::Colour::fromFloatRGBA (r / cnt, g / cnt, b / cnt, 1.0f);
             }
-            for (int y = 9; y < sh - 9; ++y)
-                for (int x = 13; x < sw - 13; ++x)
+            for (int y = my; y < sh - my; ++y)
+                for (int x = mx; x < sw - mx; ++x)
                     if (! power.contains (x, y))
                     {
                         // blend into the border over a few pixels so the bevel stays intact
-                        const int edge = juce::jmin (x - 13, sw - 14 - x, y - 9, sh - 10 - y);
-                        const float a = juce::jlimit (0.0f, 1.0f, (edge + 1) / 4.0f);
+                        const int edge = juce::jmin (x - mx, sw - mx - 1 - x, y - my, sh - my - 1 - y);
+                        const float a = juce::jlimit (0.0f, 1.0f, (edge + 1) / (4.0f * (float) k));
                         bd.setPixelColour (x, y, bd.getPixelColour (x, y).interpolatedWith (smooth[(size_t) y], a));
                     }
         }
-        const int W = w + 8, H = h + 8;
+        const int W = (w + 8) * k, H = (h + 8) * k;
         juce::Image out (juce::Image::ARGB, W, H, true);
         {
             juce::Graphics g (out);
             g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-            const int left = 28, right = 40;   // 9-slice: keep the corners and the power button
+            const int left = 28 * k, right = 40 * k;   // 9-slice: keep the corners and the power button
             g.drawImage (s, 0, 0, left, H, 0, 0, left, sh);
             g.drawImage (s, left, 0, W - left - right, H, left, 0, sw - left - right, sh);
             g.drawImage (s, W - right, 0, right, H, sw - right, 0, right, sh);
             // the knob ring (with its tick marks) from the Atmos SIZE knob
-            auto ring = art.getClippedImage ({ 1273, 781, 54, 54 });
+            auto ring = art.getClippedImage ({ 1273 * k, 781 * k, 54 * k, 54 * k });
             juce::Path circle;
-            circle.addEllipse ((float) (knobAt.x - 27), (float) (knobAt.y - 27), 54.0f, 54.0f);
+            circle.addEllipse ((float) ((knobAt.x - 27) * k), (float) ((knobAt.y - 27) * k), 54.0f * k, 54.0f * k);
             g.saveState();
             g.reduceClipRegion (circle);
-            g.drawImageAt (ring, knobAt.x - 27, knobAt.y - 27);
+            g.drawImageAt (ring, (knobAt.x - 27) * k, (knobAt.y - 27) * k);
             g.restoreState();
         }
         juce::Image::BitmapData bd (out, juce::Image::BitmapData::readWrite);
@@ -300,13 +302,19 @@ namespace
         }
         juce::Colour faceTint()
         {
-            ensure();
-            return image.getPixelAt (4 + 62 - 7, 4 + 66 - 8);
+            ensure (scale);
+            return image.getPixelAt ((4 + 62 - 7) * scale, (4 + 66 - 8) * scale);
         }
         void paint (juce::Graphics& g) override
         {
-            ensure();
-            g.drawImageAt (image, 0, 0);
+            ensure (Skin::wantsHiRes (g) ? 2 : 1);   // built from the 2x art on HiDPI screens / big windows
+            if (scale == 1)
+                g.drawImageAt (image, 0, 0);
+            else
+            {
+                g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+                g.drawImage (image, getLocalBounds().toFloat());
+            }
             const auto& sk = Skin::get();
             drawIcon (g, type, { 16.0f, 12.0f, 30.0f, 22.0f });
             drawShadowText (g, km::cardTitle (type), { 54.0f, 9.0f, (float) getWidth() - 100.0f, 28.0f }, sk.bold (21.0f),
@@ -319,14 +327,16 @@ namespace
                             juce::Justification::centredRight, juce::Colour (0xfffdf6ff), juce::Colour (0x8c000000));
         }
     private:
-        void ensure()
+        void ensure (int k)
         {
-            if (version != Skin::get().version() || ! image.isValid())
+            if (version != Skin::get().version() || ! image.isValid() || k != scale)
             {
-                image = buildWideCard (getWidth() - 8, getHeight() - 8, hue, { 4 + 62, 4 + 66 });
+                image = buildWideCard (getWidth() - 8, getHeight() - 8, hue, { 4 + 62, 4 + 66 }, k);
                 version = Skin::get().version();
+                scale = k;
             }
         }
+        int scale = 1;
         MoveType type;
         float hue;
         juce::String knobText, valueText;

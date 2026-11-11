@@ -18,10 +18,15 @@ void KoolaidEditor::Root::paint (juce::Graphics& g)
     const float phys = g.getInternalContext().getPhysicalPixelScaleFactor();
     if (phys > 0.0f && std::abs (phys - 1.0f) > 0.01f)
     {
-        // pre-scale the artwork once per scale for a crisp, alias-free background
+        // pre-scale the artwork once per scale for a crisp, alias-free background. Above 100%
+        // it comes from the 2x art (scaled down, or used as it is on a 2x screen), so a HiDPI
+        // screen or a big window shows real detail instead of a blown-up 1x image.
         if (std::abs (phys - scaledFor) > 0.001f || ! scaled.isValid() || scaledVersion != Skin::get().version())
         {
-            scaled = art.rescaled (juce::roundToInt (designW * phys), juce::roundToInt (designH * phys), juce::Graphics::highResamplingQuality);
+            const auto& src = phys > 1.01f ? Skin::get().image2x() : art;
+            const int w = juce::roundToInt (designW * phys), h = juce::roundToInt (designH * phys);
+            scaled = (w == src.getWidth() && h == src.getHeight()) ? src
+                                                                   : src.rescaled (w, h, juce::Graphics::highResamplingQuality);
             scaledFor = phys;
             scaledVersion = Skin::get().version();
         }

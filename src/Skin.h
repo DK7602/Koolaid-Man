@@ -58,6 +58,16 @@ public:
     const juce::Image& image() const     { return theme == Theme::light ? artLight : art; }
     const juce::Image& offImage() const  { return theme == Theme::light ? offLight : off; }
 
+    /** The artwork at twice the design size, for HiDPI screens and big windows. Loaded on
+        first use (current theme only, so it costs no memory on a standard screen). */
+    const juce::Image& image2x() const;
+    const juce::Image& offImage2x() const;
+    /** True when 'g' draws onto more pixels than the design size (HiDPI or a big window). */
+    static bool wantsHiRes (juce::Graphics& g) { return g.getInternalContext().getPhysicalPixelScaleFactor() > 1.01f; }
+    /** Draws a region of the art (design coordinates) into 'dest', from the 2x art when the
+        screen has the pixels for it, so buttons and cards stay sharp. */
+    void drawArt (juce::Graphics&, juce::Rectangle<int> designSrc, juce::Rectangle<int> dest, bool offState = false) const;
+
     /** Light / dark. Global preference: remembered for next time and shared by
         every open Koolaid Man window. Listeners are told when it changes. */
     Theme getTheme() const { return theme; }
@@ -80,6 +90,7 @@ private:
     Skin();
     void applyColours();
     juce::Image art, off, artLight, offLight;
+    mutable juce::Image hi[2], hiOff[2];   // 2x art per theme (dark, light), loaded lazily
     Theme theme = Theme::dark;
     int themeVersion = 0;
     std::unique_ptr<juce::PropertiesFile> prefs;

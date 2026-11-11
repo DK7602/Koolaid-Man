@@ -46,6 +46,8 @@ juce_add_binary_data(KoolaidResources
     SOURCES
         resources/skin.png
         resources/skin_light.png
+        resources/skin_2x.png
+        resources/skin_light_2x.png
         docs/MANUAL.md
         resources/fonts/BarlowCondensed-Medium.ttf
         resources/fonts/BarlowCondensed-SemiBold.ttf
