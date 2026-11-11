@@ -84,6 +84,7 @@ set(KOOLAID_CORE_SOURCES
     src/MoveProcessors.cpp
     src/DropRenderer.cpp
     src/Mastering.cpp
+    src/KeyDetector.cpp
     src/Presets.cpp)
 
 target_sources(KoolaidMan PRIVATE

@@ -9,10 +9,11 @@
 #include "Presets.h"
 #include "Mastering.h"
 #include "MoveProcessors.h"
+#include "KeyDetector.h"
 
 using namespace km;
 
-static juce::AudioBuffer<float> makeBeat (double sr, double bpm, int bars)
+static juce::AudioBuffer<float> makeBeat (double sr, double bpm, int bars, bool withPad = true)
 {
     const double spb = sr * 60.0 / bpm;
     const int n = (int) (spb * 4 * bars);
@@ -45,7 +46,7 @@ static juce::AudioBuffer<float> makeBeat (double sr, double bpm, int bars)
         add (hat, pos + (int) (spb / 2), 0.18f);
     }
     // a pad so there is something musical to process
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < (withPad ? n : 0); ++i)
     {
         const double t = i / sr;
         const float v = (float) (0.05 * (std::sin (juce::MathConstants<double>::twoPi * 220.0 * t)
@@ -79,6 +80,41 @@ static double maxBeatJump (const RenderResult& r, const juce::AudioBuffer<float>
         worst = juce::jmax (worst, rmsDb (mix, (int) s, beat) - ref);
     }
     return worst;
+}
+
+/** A chord progression (triads with a few harmonics + root bass) over the drum beat. */
+static juce::AudioBuffer<float> makeSong (double sr, double bpm, const std::vector<std::vector<int>>& chords)
+{
+    const double spb = sr * 60.0 / bpm;
+    const int bars = (int) chords.size();
+    auto b = makeBeat (sr, bpm, bars, false);
+    const int n = b.getNumSamples();
+    const auto hz = [] (int midi) { return 440.0 * std::pow (2.0, (midi - 69) / 12.0); };
+    for (int bar = 0; bar < bars; ++bar)
+    {
+        const int s0 = (int) (bar * 4 * spb), s1 = juce::jmin (n, (int) ((bar + 1) * 4 * spb));
+        for (int note : chords[(size_t) bar])
+            for (int h = 1; h <= 4; ++h)
+            {
+                const double f = hz (note) * h;
+                for (int i = s0; i < s1; ++i)
+                {
+                    const double t = (i - s0) / sr;
+                    const float v = (float) (0.05 / h * std::sin (juce::MathConstants<double>::twoPi * f * t) * (1.0 - std::exp (-t * 30.0)));
+                    b.addSample (0, i, v);
+                    b.addSample (1, i, v);
+                }
+            }
+        // bass: the chord root two octaves down
+        const double fb = hz (chords[(size_t) bar][0] - 24);
+        for (int i = s0; i < s1; ++i)
+        {
+            const float v = (float) (0.12 * std::sin (juce::MathConstants<double>::twoPi * fb * (i - s0) / sr));
+            b.addSample (0, i, v);
+            b.addSample (1, i, v);
+        }
+    }
+    return b;
 }
 
 static bool checkBuffer (const juce::AudioBuffer<float>& b, const juce::String& what)
@@ -292,6 +328,49 @@ int main (int argc, char** argv)
         // round trip of the timing through presets / project state
         auto back = Move::fromTree (t.toTree());
         if (! (back == t)) { std::cout << "FAIL: timeline region round trip\n"; ++failures; }
+    }
+
+    // ---- key detection on chord progressions in known keys
+    {
+        struct Case { const char* name; int tonic; bool minor; std::vector<std::vector<int>> chords; };
+        const std::vector<Case> cases {
+            { "A minor (Am F C G)",    9, true,  { { 69, 72, 76 }, { 65, 69, 72 }, { 60, 64, 67 }, { 67, 71, 74 }, { 69, 72, 76 }, { 65, 69, 72 }, { 64, 68, 71 }, { 69, 72, 76 } } },
+            { "D major (D G A D)",     2, false, { { 62, 66, 69 }, { 67, 71, 74 }, { 69, 73, 76 }, { 62, 66, 69 }, { 71, 74, 78 }, { 67, 71, 74 }, { 69, 73, 76 }, { 62, 66, 69 } } },
+            { "F# minor (F#m D A E)",  6, true,  { { 66, 69, 73 }, { 62, 66, 69 }, { 69, 73, 76 }, { 64, 68, 71 }, { 66, 69, 73 }, { 62, 66, 69 }, { 61, 65, 68 }, { 66, 69, 73 } } },
+            { "Eb major (Eb Ab Bb Eb)", 3, false, { { 63, 67, 70 }, { 68, 72, 75 }, { 70, 74, 77 }, { 63, 67, 70 }, { 60, 63, 67 }, { 68, 72, 75 }, { 70, 74, 77 }, { 63, 67, 70 } } },
+        };
+        int right = 0;
+        for (auto& c : cases)
+        {
+            const auto song = makeSong (sr, bpm, c.chords);
+            const auto k = detectKey (song, sr);
+            const bool ok = k.found && k.tonic == c.tonic && k.minor == c.minor;
+            right += ok ? 1 : 0;
+            std::cout << "key: " << juce::String (c.name).paddedRight (' ', 24) << " -> "
+                      << (k.found ? keyName (k.tonic, k.minor) : juce::String ("not found")) << "  conf " << juce::String (k.confidence, 2)
+                      << (ok ? "" : "   <-- WRONG") << "\n";
+        }
+        if (right < (int) cases.size()) { std::cout << "FAIL: key detection " << right << "/" << cases.size() << "\n"; ++failures; }
+
+        // the Sub Boom lands on the root: A minor -> A1 (55 Hz)
+        DropModel m = model;
+        m.keyMode = 12 + 9;   // A minor, set by hand
+        Move boom = defaultMove (MoveType::Boom);
+        boom.division = 7;     // 2 bars, so the glide has settled
+        m.moves = { boom };
+        auto r = renderDrop (m, analysis, 1);
+        const juce::int64 a0 = r->zoneEnd + (juce::int64) (1.5 * sr), a1 = r->zoneEnd + (juce::int64) (2.3 * sr);
+        int crossings = 0;
+        float prev = r->sampleAt (RenderResult::Layer::fx, 0, a0);
+        for (juce::int64 p = a0 + 1; p < a1; ++p)
+        {
+            const float v = r->sampleAt (RenderResult::Layer::fx, 0, p);
+            if ((prev < 0.0f) != (v < 0.0f)) ++crossings;
+            prev = v;
+        }
+        const double f = crossings / 2.0 / ((a1 - a0) / sr);
+        std::cout << "sub boom in A minor ends at " << juce::String (f, 1) << " Hz (A1 = 55 Hz)\n";
+        if (std::abs (f - 55.0) > 2.0) { std::cout << "FAIL: sub boom not tuned to the key\n"; ++failures; }
     }
 
     // ---- studio-grade pitch: a pure 440 Hz tone shifted +12 st must come out as a clean 880 Hz

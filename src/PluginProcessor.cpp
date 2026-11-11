@@ -2,6 +2,7 @@
 #include "PluginEditor.h"
 #include "DrumDetector.h"
 #include "Mastering.h"
+#include "KeyDetector.h"
 
 using namespace km;
 
@@ -666,8 +667,10 @@ juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
     if (analysis == nullptr)
     {
         const auto& srcClip = model.drums != nullptr ? model.drums : model.music;
-        analysis = std::make_shared<DrumAnalysis> (analyseDrums (srcClip->audio, srcClip->sampleRate, model.samplesPerBeat (srcClip->sampleRate),
-                                                                 model.beatsPerBar(), model.sensSnare, model.sens808, model.sensHats));
+        auto a = std::make_shared<DrumAnalysis> (analyseDrums (srcClip->audio, srcClip->sampleRate, model.samplesPerBeat (srcClip->sampleRate),
+                                                               model.beatsPerBar(), model.sensSnare, model.sens808, model.sensHats));
+        a->key = detectKey (model.music->audio, model.music->sampleRate);
+        analysis = a;
     }
     // Reuse the render already on screen when it's up to date (no second render, no wait)
     km::ResultPtr r = (! renderPending.load() && currentResult != nullptr && currentResult->requestId == lastRequestId
@@ -773,6 +776,7 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
     t.setProperty ("sensSnare", model.sensSnare, nullptr);
     t.setProperty ("sens808", model.sens808, nullptr);
     t.setProperty ("sensHats", model.sensHats, nullptr);
+    t.setProperty ("keyMode", model.keyMode, nullptr);
 
     t.setProperty ("presetName", settings.presetName, nullptr);
     t.setProperty ("presetDirty", settings.presetDirty, nullptr);
@@ -840,6 +844,7 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     model.sensSnare = t.getProperty ("sensSnare", model.sensSnare);
     model.sens808 = t.getProperty ("sens808", model.sens808);
     model.sensHats = t.getProperty ("sensHats", model.sensHats);
+    model.keyMode = juce::jlimit (-2, 23, (int) t.getProperty ("keyMode", -1));
 
     settings.presetName = t.getProperty ("presetName", settings.presetName);
     settings.presetDirty = t.getProperty ("presetDirty", settings.presetDirty);

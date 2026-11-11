@@ -58,6 +58,28 @@ void KoolaidEditor::CodeTab::paint (juce::Graphics& g)
                     juce::Colours::white, juce::Colour (0x8c000000));
 }
 
+void KoolaidEditor::KeyBox::paint (juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (1.0f);
+    const bool light = Skin::get().getTheme() == Theme::light;
+    juce::ColourGradient bg (on ? juce::Colour (0xff2c6b7a) : juce::Colour (light ? 0xffd9d2ea : 0xff2a2442), 0, r.getY(),
+                             on ? juce::Colour (0xff163a48) : juce::Colour (light ? 0xffc4bbdd : 0xff1a1530), 0, r.getBottom(), false);
+    g.setGradientFill (bg);
+    g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+    g.setColour (on ? col::cyan : col::lavender.withAlpha (0.7f));
+    g.drawRoundedRectangle (r.reduced (0.5f), r.getHeight() * 0.5f, 1.2f);
+    if (isMouseOver())
+    {
+        g.setColour (juce::Colours::white.withAlpha (0.1f));
+        g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+    }
+    auto tr = r.reduced (10.0f, 0.0f);
+    drawShadowText (g, "KEY", tr, Skin::get().heavyItalic (15.0f), juce::Justification::centredLeft,
+                    on ? col::cyan : (light ? col::text : col::lavender), on || ! light ? juce::Colour (0x8c000000) : col::shadow);
+    drawShadowText (g, text, tr.withTrimmedLeft (30.0f), Skin::get().wideBold (14.5f), juce::Justification::centredLeft,
+                    on || ! light ? juce::Colour (0xfff7f3ff) : col::text, on || ! light ? juce::Colour (0x8c000000) : col::shadow);
+}
+
 void KoolaidEditor::ArrowButton::paint (juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced (1.0f);
@@ -138,6 +160,8 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
         root.addAndMakeVisible (*detectText[i]);
     }
     root.addChildComponent (bubble);
+    root.addAndMakeVisible (keyBox);
+    keyBox.onClick = [this] { showKeyMenu(); };
     root.addAndMakeVisible (mascotBtn);
     mascotBtn.setShowHover (false);
     mascotBtn.setTooltip ("Click Koolaid Man to switch between the dark and light look");
@@ -538,9 +562,51 @@ void KoolaidEditor::refreshTransport()
     previewBtn.setGlow (lastSync ? col::yellow : juce::Colours::transparentBlack);
 }
 
+void KoolaidEditor::showKeyMenu()
+{
+    auto& m = proc.getModel();
+    const auto a = proc.getAnalysis();
+    juce::PopupMenu menu, majors, minors;
+    menu.addSectionHeader ("SONG KEY (TUNES RISERS, SUB BOOM, IMPACT)");
+    juce::String detected = "not found yet";
+    if (a != nullptr && a->key.found) detected = km::keyName (a->key.tonic, a->key.minor);
+    menu.addItem (1, "Auto (detected: " + detected + ")", true, m.keyMode == -1);
+    menu.addItem (2, "Off (don't tune)", true, m.keyMode == -2);
+    for (int t = 0; t < 12; ++t)
+    {
+        majors.addItem (100 + t, km::keyName (t, false), true, m.keyMode == t);
+        minors.addItem (112 + t, km::keyName (t, true), true, m.keyMode == 12 + t);
+    }
+    menu.addSeparator();
+    menu.addSubMenu ("Major keys", majors);
+    menu.addSubMenu ("Minor keys", minors);
+    menu.showMenuAsync (menuOptionsFor (&keyBox), [this] (int r)
+    {
+        if (r <= 0) return;
+        auto& mm = proc.getModel();
+        mm.keyMode = r == 1 ? -1 : (r == 2 ? -2 : r - 100);
+        proc.modelChanged (true);
+        refreshDetection();
+    });
+}
+
 void KoolaidEditor::refreshDetection()
 {
     const auto a = proc.getAnalysis();
+    {
+        const auto& m = proc.getModel();
+        const auto key = m.effectiveKey (a != nullptr ? a->key : km::KeyInfo {});
+        juce::String text;
+        if (m.keyMode == -2) text = "OFF";
+        else if (key.found) text = km::keyName (key.tonic, key.minor).toUpperCase().replace ("MAJOR", "MAJ").replace ("MINOR", "MIN")
+                                   + (m.keyMode >= 0 ? " *" : "");
+        else text = proc.hasMusic() ? (a == nullptr ? "..." : "?") : "--";
+        keyBox.setText (text, key.found);
+        keyBox.setTooltip (m.keyMode == -2 ? "Key tuning is off - click to turn it on"
+                           : key.found ? "Your song's key" + juce::String (m.keyMode >= 0 ? " (set by hand)" : " (detected)")
+                                         + ": " + km::keyName (key.tonic, key.minor) + ". Risers, Sub Boom, Impact and the backup 808 are tuned to it. Click to change."
+                                       : "The song's key couldn't be detected - click to set it by hand");
+    }
     const char* names[] = { "Snare / Drum", "808", "Hi-Hats" };
     for (int i = 0; i < 3; ++i)
     {

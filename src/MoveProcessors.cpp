@@ -712,7 +712,7 @@ namespace
     void do808 (const Move& m, const MoveContext& c, Buffer& fx)
     {
         const int n = fx.getNumSamples();
-        double f0 = 49.0;
+        double f0 = c.rootHz (32.0, 49.0);   // the song's root if no 808 was found
         const Buffer* transient = nullptr;
         if (c.drums != nullptr && c.drums->bass.found)
         {
@@ -963,9 +963,11 @@ namespace
                 {
                     v = b * 2.2f;
                 }
-                else if (m.mode == 1)   // uplifter: noise + three detuned saws gliding up two octaves
+                else if (m.mode == 1)   // uplifter: noise + three detuned saws gliding up
                 {
-                    const double f = 180.0 * std::pow (10.0, std::pow (t, 1.4));
+                    // in key: start on the root and rise exactly three octaves to land on it again
+                    const double f = c.tonic >= 0 ? c.rootHz (110.0, 180.0) * std::pow (8.0, std::pow (t, 1.4))
+                                                  : 180.0 * std::pow (10.0, std::pow (t, 1.4));
                     float tone = 0.0f;
                     const double det[3] = { 1.0, 1.0072, 0.9931 };
                     for (int k = 0; k < 3; ++k) tone += saws[k].next (f * det[k] * (ch == 0 ? 1.0 : 1.002), sr);
@@ -1088,9 +1090,10 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
         {
             const double t = i / sr;
             double f, env;
-            if (m.mode == 1)      { f = 40.0 + 45.0 * std::exp (-t / 0.05); env = std::exp (-t / 0.35); }   // punchy
-            else if (m.mode == 2) { f = 26.0 + 46.0 * std::pow (1.0 - (double) i / T, 1.6); env = std::exp (-t / (T / sr * 0.6)); } // long dive
-            else                  { f = 30.0 + 26.0 * std::exp (-t / 0.35); env = std::exp (-t / 0.9); }   // deep
+            // each glides down onto its end note, which is the song's root when the key is known
+            if (m.mode == 1)      { const double e = c.rootHz (36.0, 40.0); f = e + e * 1.125 * std::exp (-t / 0.05); env = std::exp (-t / 0.35); }   // punchy
+            else if (m.mode == 2) { const double e = c.rootHz (26.0, 26.0); f = e + e * 1.77 * std::pow (1.0 - (double) i / T, 1.6); env = std::exp (-t / (T / sr * 0.6)); } // long dive
+            else                  { const double e = c.rootHz (28.0, 30.0); f = e + e * 0.87 * std::exp (-t / 0.35); env = std::exp (-t / 0.9); }   // deep
             phase += f / sr;
             const float atk = (float) juce::jmin (1.0, t / 0.002);
             const float v = (float) std::tanh (1.5 * std::sin (juce::MathConstants<double>::twoPi * phase)) * (float) env * atk;
@@ -1120,7 +1123,8 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
             {
                 const double t = i / sr;
                 const float nz = rng.nextFloat() * 2.0f - 1.0f;
-                phase += (48.0 + 40.0 * std::exp (-t / 0.04)) / sr;
+                const double thump = c.rootHz (40.0, 48.0);   // the body of the hit sits on the root
+                phase += (thump + thump * 0.83 * std::exp (-t / 0.04)) / sr;
                 const float v = hp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.09) * 0.8f
                               + bp.processSingleSampleRaw (nz) * (float) std::exp (-t / 0.18) * 1.5f
                               + (float) std::sin (juce::MathConstants<double>::twoPi * phase) * (float) std::exp (-t / 0.28);

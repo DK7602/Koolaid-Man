@@ -169,6 +169,7 @@ Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and find
 - A **green check** means it was found. **(Synth)** means it wasn't, so that move uses a built-in sound instead.
 - **ANALYZE DRUMS** runs the detection again. It also runs automatically whenever the audio changes.
 - If something isn't found, turn up **SENS** on the 808 or Hat card, or load a drum stem into AUDIO 2.
+- **KEY** (top right of the Detection panel) shows your song's key. Risers (Uplifter), **Sub Boom**, the **Impact**'s low thump and the backup 808 are tuned to it, so they land on your root note instead of clashing. Click it to pick the key by hand, go back to **Auto**, or turn tuning **Off**. Your own detected 808 always keeps its real pitch.
 - Click the **AUDIO 2** tab to see where each hit was found (pink = snare, yellow = 808, cyan = hats).
 
 # ROLL and Presets

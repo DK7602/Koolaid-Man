@@ -107,10 +107,25 @@ struct DrumHits
     float pitchHz = 0.0f;                  // 808 fundamental (808 only)
 };
 
+/** The song's key (from detectKey). tonic: 0 = C ... 11 = B. */
+struct KeyInfo
+{
+    bool found = false;
+    int tonic = 0;
+    bool minor = false;
+    float confidence = 0.0f;
+};
+
+juce::String keyName (int tonic, bool minor);          // "F# minor"
+juce::String keyShortName (int tonic, bool minor);     // "F#m"
+/** Frequency of pitch class 'tonic' in the octave [lowHz, 2 * lowHz). */
+double pitchClassHz (int tonic, double lowHz);
+
 struct DrumAnalysis
 {
     DrumHits snare, bass, hats;
     bool fromDrumStem = false;
+    KeyInfo key;                 // always from the music (AUDIO 1)
 };
 using AnalysisPtr = std::shared_ptr<const DrumAnalysis>;
 
@@ -141,6 +156,15 @@ struct DropModel
     std::array<Move, numMoveTypes> templates;   // card values when no instance exists
 
     float sens808 = 0.55f, sensHats = 0.55f, sensSnare = 0.55f;
+    int keyMode = -1;            // -1 auto (detected), -2 off (don't tune), 0..23 = tonic + 12 * minor
+
+    /** The key used for tuning, or found == false when tuning is off / unknown. */
+    KeyInfo effectiveKey (const KeyInfo& detected) const
+    {
+        if (keyMode == -2) return {};
+        if (keyMode >= 0) { KeyInfo k; k.found = true; k.tonic = keyMode % 12; k.minor = keyMode >= 12; k.confidence = 1.0f; return k; }
+        return detected;
+    }
     int analysisRequest = 0;         // bump to force re-analysis
 
     double beatsPerBar() const noexcept { return tsNum * 4.0 / tsDen; }

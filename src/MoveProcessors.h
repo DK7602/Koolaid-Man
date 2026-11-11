@@ -14,6 +14,10 @@ struct MoveContext
     const juce::AudioBuffer<float>* clip = nullptr;   // the untouched music clip
     const DrumAnalysis* drums = nullptr;              // onsets relative to clip start
 
+    // the song's key root for tuning (0 = unknown / tuning off): pitch class 0..11
+    int tonic = -1;
+    double rootHz (double lowHz, double fallbackHz) const { return tonic >= 0 ? pitchClassHz (tonic, lowHz) : fallbackHz; }
+
     // levels of the original build zone, so added sounds sit at the track's level
     float refPeak = 0.5f;     // sample peak
     float refRms = 0.1f;      // RMS

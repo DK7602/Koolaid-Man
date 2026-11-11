@@ -295,6 +295,26 @@ bool Move::operator== (const Move& o) const
         && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd));
 }
 
+juce::String keyName (int tonic, bool minor)
+{
+    static const char* names[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    return juce::String (names[((tonic % 12) + 12) % 12]) + (minor ? " minor" : " major");
+}
+
+juce::String keyShortName (int tonic, bool minor)
+{
+    static const char* names[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    return juce::String (names[((tonic % 12) + 12) % 12]) + (minor ? "m" : "");
+}
+
+double pitchClassHz (int tonic, double lowHz)
+{
+    double f = 440.0 * std::pow (2.0, ((((tonic % 12) + 12) % 12) - 9) / 12.0);   // in the A4 octave
+    while (f >= 2.0 * lowHz) f *= 0.5;
+    while (f < lowHz) f *= 2.0;
+    return f;
+}
+
 juce::StringArray playbackModeNames()   { return { "PRE-DROP", "FULL CLIP", "INTO THE DROP", "ORIGINAL (A/B)" }; }
 juce::StringArray exportFormatNames()   { return { "WAV (16-BIT)", "WAV (24-BIT)", "WAV (32 FLOAT)", "AIFF (24-BIT)" }; }
 

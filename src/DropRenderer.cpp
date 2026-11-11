@@ -2,6 +2,7 @@
 #include "DrumDetector.h"
 #include "MoveProcessors.h"
 #include "Mastering.h"
+#include "KeyDetector.h"
 
 namespace km
 {
@@ -74,6 +75,10 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     ctx.zoneStartInClip = res->zoneStart;
     ctx.clip = &clip;
     ctx.drums = analysis.get();
+    {
+        const auto key = model.effectiveKey (analysis != nullptr ? analysis->key : KeyInfo {});
+        ctx.tonic = key.found ? key.tonic : -1;
+    }
 
     // reference levels of the untouched zone
     {
@@ -345,6 +350,8 @@ void RenderThread::run()
                     a = std::make_shared<DrumAnalysis> (analyseDrums (src->audio, src->sampleRate, job->samplesPerBeat (src->sampleRate),
                                                                       job->beatsPerBar(), job->sensSnare, job->sens808, job->sensHats));
                     a->fromDrumStem = job->drums != nullptr;
+                    if (job->music != nullptr)
+                        a->key = detectKey (job->music->audio, job->music->sampleRate);   // key always from the music
                 }
                 analysis = a;
                 const juce::ScopedLock sl (lock);

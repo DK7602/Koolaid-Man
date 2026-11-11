@@ -72,6 +72,21 @@ private:
         bool redo, available = false;
     };
 
+    /** KEY readout in the Detection panel (click to override). */
+    class KeyBox : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        KeyBox() { setBounds (352, 904, 124, 22); setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+        std::function<void()> onClick;
+        void setText (const juce::String& t, bool tuning) { if (t != text || tuning != on) { text = t; on = tuning; repaint(); } }
+        void paint (juce::Graphics&) override;
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override  { repaint(); }
+        void mouseUp (const juce::MouseEvent& e) override  { if (e.mouseWasClicked() && onClick) onClick(); }
+        juce::String text;
+        bool on = false;
+    };
+
     class Bubble : public juce::Component
     {
     public:
@@ -152,6 +167,8 @@ private:
 
     // detection
     Btn analyzeBtn { { 36, 952, 188, 75 }, 12.0f };
+    KeyBox keyBox;
+    void showKeyMenu();
     std::unique_ptr<Btn> detectChecks[3];
     std::unique_ptr<Box> detectText[3];
 
