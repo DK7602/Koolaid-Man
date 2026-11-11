@@ -144,6 +144,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     cards->onEdited = [this] { edited(); };
     cards->onStackChanged = [this] { stack.refresh(); };
     cards->onEditPattern = [this] (int uid) { stack.select (uid); editPattern (uid); };
+    cards->onLoadSample = [this] (int uid) { stack.select (uid); chooseMoveSample (uid); };
     cards->onBubble = [this] (SkinKnob& k, const juce::String& t, bool show)
     {
         if (show) bubble.show (k, t);
@@ -175,6 +176,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     root.addChildComponent (gridEditor);
     stack.onEditCurve = [this] (int uid) { editCurve (uid); };
     stack.onEditPattern = [this] (int uid) { editPattern (uid); };
+    stack.onLoadSample = [this] (int uid) { chooseMoveSample (uid); };
 
     //------------------------------------------------------------------ header steps
     step1.setTooltip ("1. DRAG IN AUDIO - load the bars before your drop, or capture them from your track");
@@ -1039,6 +1041,28 @@ void KoolaidEditor::chooseFile (int slot)
     });
 }
 
+void KoolaidEditor::chooseMoveSample (int uid)
+{
+    chooser = std::make_unique<juce::FileChooser> ("Pick your own riser / crash / impact sample",
+                                                   juce::File(), "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this, uid] (const juce::FileChooser& fc)
+    {
+        const auto f = fc.getResult();
+        if (f.existsAsFile()) loadMoveSample (uid, f);
+    });
+}
+
+void KoolaidEditor::loadMoveSample (int uid, const juce::File& f)
+{
+    juce::String err;
+    if (proc.loadMoveSample (uid, f, err))
+        waveform.showMessage ("Using your sample: " + f.getFileName(), 2500);
+    else
+        waveform.showMessage (err, 5000);
+    refreshAll();
+}
+
 void KoolaidEditor::loadFile (const juce::File& f, int slot)
 {
     juce::String err;
@@ -1144,7 +1168,7 @@ bool KoolaidEditor::isInterestedInFileDrag (const juce::StringArray& files)
 
 void KoolaidEditor::fileDragEnter (const juce::StringArray&, int, int)
 {
-    waveform.showMessage ("Drop to load (drop on the AUDIO 2 tab for a drum stem)", 60000);
+    waveform.showMessage ("Drop to load (on AUDIO 2 for a drum stem, or on a Riser / Crash / Impact / Boom card for your own sample)", 60000);
 }
 
 void KoolaidEditor::fileDragExit (const juce::StringArray&)
@@ -1155,6 +1179,22 @@ void KoolaidEditor::fileDragExit (const juce::StringArray&)
 void KoolaidEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     const auto p = root.getLocalPoint (this, juce::Point<int> (x, y));
+    // dropped on a Riser / Crash / Impact / Boom card: use it as that move's sample
+    if (cards != nullptr)
+    {
+        const auto t = cards->cardTypeAt (p);
+        if (t != km::MoveType::NumTypes && km::moveTakesSample (t))
+        {
+            for (auto& f : files)
+                if (isAudioFile (f))
+                {
+                    const int uid = cards->ensureInStack (t);
+                    stack.select (uid);
+                    loadMoveSample (uid, juce::File (f));
+                    return;
+                }
+        }
+    }
     const bool toDrums = tab2.getBounds().expanded (4).contains (p)
                       || (proc.getSettings().activeTab == 1 && waveform.getBounds().contains (p));
     for (auto& f : files)

@@ -196,6 +196,8 @@ private:
     GridEditor gridEditor;
     void editCurve (int uid);
     void editPattern (int uid);
+    void chooseMoveSample (int uid);
+    void loadMoveSample (int uid, const juce::File&);
     void showTensionMenu();
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;

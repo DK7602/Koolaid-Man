@@ -115,6 +115,11 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
             preFx = std::make_unique<juce::AudioBuffer<float>> (fx);
         }
 
+        ctx.userSample = nullptr;
+        if (m.hasSample())
+            if (auto it = model.samples.find (m.sampleId); it != model.samples.end() && it->second != nullptr)
+                ctx.userSample = it->second.get();
+
         if (! m.customRegion)
             applyMove (m, ctx, main, fx);
         else
@@ -273,6 +278,10 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         for (auto& m : model.moves)
         {
             if (! m.enabled || ! playsAfterDrop (m.type)) continue;
+            ctx.userSample = nullptr;
+            if (m.hasSample())
+                if (auto it = model.samples.find (m.sampleId); it != model.samples.end() && it->second != nullptr)
+                    ctx.userSample = it->second.get();
             if (! m.customRegion)
             {
                 renderAfterDrop (m, ctx, post);

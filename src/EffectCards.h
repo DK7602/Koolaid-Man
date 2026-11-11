@@ -22,6 +22,12 @@ public:
     std::function<void()> onEdited;     // model changed -> render
     std::function<void()> onStackChanged;
     std::function<void (int uid)> onEditPattern;   // Chops / Stutter: open the step-pattern editor
+    std::function<void (int uid)> onLoadSample;    // Riser / Crash / Impact / Boom: pick your own sample
+
+    /** The move type of the visible card under a point (in the parent's coordinates), or NumTypes. */
+    km::MoveType cardTypeAt (juce::Point<int>) const;
+    /** Makes sure a move of this type is in the stack and returns its uid. */
+    int ensureInStack (km::MoveType);
     std::function<void (skin::SkinKnob&, const juce::String&, bool)> onBubble;
 
 private:

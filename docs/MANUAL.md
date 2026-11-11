@@ -184,6 +184,23 @@ A deep sub drop on the downbeat. Types: **Deep**, **Punchy** and **Long Dive**.
 
 **Impact** and **Sub Boom** play *after* the drop. If your audio ends right at the drop, Koolaid Man adds a tail (rounded up to whole bars) so you still hear them, and the export includes it.
 
+## Your own samples
+
+Got a riser, crash or impact you love? **Noise Riser**, **Reverse Crash**, **Impact** and **Sub Boom** can play **your own sample** instead of the built-in sound:
+
+- **Drag an audio file** (WAV, AIFF, FLAC, MP3 or OGG, up to 30 seconds) **onto the card**, or
+- click the card's title (or the move's drop-down in the stack) and pick **Use Your Own Sample...**.
+
+Koolaid Man lines it up for you:
+
+- **Riser**: trimmed of silence and placed so it **ends right on the drop**. If it's longer than **Length**, only its end plays (with a smooth fade-in).
+- **Reverse Crash**: played **backwards**, so the crash's hit lands on the drop. Give it a normal crash; Koolaid Man reverses it.
+- **Impact / Sub Boom**: the attack lands **exactly on the downbeat** of the drop. **Tail / Length** cuts it off (with a fade) if it's longer.
+
+**Level** works as usual, and the sample is matched to your track's loudness so it sits in the mix. The card's TYPE box shows **★ and the sample's name**. Pick **Built-In Sound** (or any built-in type) to go back.
+
+Your samples are **saved inside your project**, so the session still opens on another computer or after you move the file. Presets remember the file's location and load it again when you use the preset.
+
 # FX Moves (Page 3)
 
 Click **FX MOVES** in the title bar of the cards panel for the third page of cards. These are the mix moves engineers use to make a drop feel bigger: echo throws, crunch, motion, width and turntable tricks. Each card works like the other pages: the **power button** switches it on (adding it to the stack), **TYPE** picks the variation and the second box sets the length (or the echo time).

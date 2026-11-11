@@ -69,6 +69,21 @@ public:
                 editor.showTab (3);
             if (args.contains ("page2"))
                 editor.showCardPage (1);
+            if (args.contains ("usersample"))
+            {
+                auto clip = std::make_shared<km::ClipData>();
+                clip->audio.setSize (2, 4800);
+                clip->audio.clear();
+                clip->audio.setSample (0, 10, 0.5f);
+                proc->getModel().samples["snap"] = clip;
+                auto mv = km::defaultMove (km::MoveType::Impact);
+                mv.sampleId = "snap";
+                mv.sampleName = "Big Hit 01";
+                proc->getModel().moves.push_back (mv);
+                proc->modelChanged (true);
+                editor.refreshForSnapshot();
+                editor.showCardPage (1);
+            }
             if (args.contains ("page3"))
             {
                 // a few fx moves in the stack, so the page shows them switched on

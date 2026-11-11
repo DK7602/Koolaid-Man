@@ -990,8 +990,64 @@ namespace
         return out;
     }
 
+    /** The user's sample as stereo, without the near-silence at its start (and end, if asked). */
+    Buffer trimmedSample (const ClipData& s, bool trimEnd)
+    {
+        const auto& a = s.audio;
+        const int n = a.getNumSamples();
+        Buffer out;
+        if (n == 0) return out;
+        const float peak = a.getMagnitude (0, n);
+        if (peak <= 0.0f) return out;
+        const float thr = peak * 0.001f;   // -60 dB
+        auto loud = [&] (int i)
+        {
+            for (int ch = 0; ch < a.getNumChannels(); ++ch) if (std::abs (a.getSample (ch, i)) > thr) return true;
+            return false;
+        };
+        int first = 0, last = n - 1;
+        while (first < n - 1 && ! loud (first)) ++first;
+        if (trimEnd) while (last > first && ! loud (last)) --last;
+        first = juce::jmax (0, first - 16);   // keep the attack's very start
+        const int len = last - first + 1;
+        out.setSize (2, len);
+        for (int ch = 0; ch < 2; ++ch)
+            out.copyFrom (ch, 0, a, juce::jmin (ch, a.getNumChannels() - 1), first, len);
+        return out;
+    }
+
+    /** Riser / Reverse Crash with your own sample: it ends right on the drop (a crash is
+        reversed, so its hit lands on the drop). Length limits how much of it plays. */
+    void doSampleIntoDrop (const Move& m, const MoveContext& c, Buffer& fx, bool reverse)
+    {
+        const int n = fx.getNumSamples();
+        const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+        Buffer smp = trimmedSample (*c.userSample, true);
+        if (L < 256 || smp.getNumSamples() < 64) return;
+        if (reverse)
+            for (int ch = 0; ch < 2; ++ch)
+                std::reverse (smp.getWritePointer (ch), smp.getWritePointer (ch) + smp.getNumSamples());
+        const int len = smp.getNumSamples();
+        const int take = juce::jmin (len, L), skip = len - take;
+        Buffer layer (2, take);
+        for (int ch = 0; ch < 2; ++ch)
+            layer.copyFrom (ch, 0, smp, ch, skip, take);
+        if (skip > 0) layer.applyGainRamp (0, juce::jmin (take / 4, (int) (0.05 * c.sampleRate)), 0.0f, 1.0f);   // cut in gently
+        for (int i = 0; i < take; ++i)
+        {
+            const float e = (float) shapeCurve (m, (double) i / take, 0.0);   // Auto = the sample as it is
+            layer.setSample (0, i, layer.getSample (0, i) * e);
+            layer.setSample (1, i, layer.getSample (1, i) * e);
+        }
+        const int tail = juce::jmin (take / 8, (int) (0.002 * c.sampleRate) + 1);
+        layer.applyGainRamp (take - tail, tail, 1.0f, 0.0f);
+        const float target = c.refRms * (reverse ? 0.4f + 0.8f * m.knob : 0.35f + 0.75f * m.knob);
+        addMatched (fx, layer, n - take, take - juce::jmax (1, take / 4), juce::jmax (1, take / 4), target);
+    }
+
     void doRiser (const Move& m, const MoveContext& c, Buffer& fx)
     {
+        if (c.userSample != nullptr) { doSampleIntoDrop (m, c, fx, false); return; }
         const int n = fx.getNumSamples();
         const int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (L < 256) return;
@@ -1050,6 +1106,7 @@ namespace
 
     void doRevCrash (const Move& m, const MoveContext& c, Buffer& fx)
     {
+        if (c.userSample != nullptr) { doSampleIntoDrop (m, c, fx, true); return; }
         const int n = fx.getNumSamples();
         int L = juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
         if (m.mode == 1) L = juce::jmin (L, toSamples (2.0, c));
@@ -1749,6 +1806,23 @@ void renderAfterDrop (const Move& m, const MoveContext& c, Buffer& post)
     if (T < 256) return;
     const float level = 0.45f + 0.65f * m.knob;
     const int firstHalfSec = juce::jmin (T, (int) (0.5 * sr));
+
+    // your own sample on the downbeat: its attack lands right on the drop
+    if (c.userSample != nullptr)
+    {
+        Buffer smp = trimmedSample (*c.userSample, false);
+        if (smp.getNumSamples() < 64) return;
+        const int len = juce::jmin (T, smp.getNumSamples());
+        Buffer hit (2, len);
+        for (int ch = 0; ch < 2; ++ch) hit.copyFrom (ch, 0, smp, ch, 0, len);
+        const int rel = len < smp.getNumSamples() ? juce::jmin (len / 4, (int) (0.08 * sr)) : juce::jmin (len / 8, (int) (0.002 * sr) + 1);
+        hit.applyGainRamp (len - rel, rel, 1.0f, 0.0f);
+        const int win = juce::jmin (len, firstHalfSec);
+        const float target = m.type == MoveType::Boom ? juce::jlimit (c.refRms * 0.5f, c.refRms * 1.2f, c.lowRms * 2.0f) * level
+                                                      : c.refRms * 1.4f * level;
+        addMatched (post, hit, 0, 0, win, target);
+        return;
+    }
 
     if (m.type == MoveType::Boom)
     {

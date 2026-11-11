@@ -67,6 +67,9 @@ Every push builds the plug-in on GitHub Actions:
 | **Impact** | Level · Tail | Hit + Crash, Hit Only, Crash + Downlifter (plays on the drop) |
 | **Sub Boom** | Level · Length | Deep, Punchy, Long Dive (plays on the drop) |
 
+Riser, Reverse Crash, Impact and Sub Boom can use **your own sample** (drag a file onto the card): risers end on
+the drop, crashes are reversed into it, impacts hit on the downbeat. Samples are saved inside the project.
+
 **FX MOVES** page:
 
 ![FX Moves page](docs/screenshot-page3.png)

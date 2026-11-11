@@ -566,6 +566,64 @@ int main (int argc, char** argv)
         }
     }
 
+    // ---- your own samples: a riser ends on the drop, a crash is reversed into it, an impact hits on it
+    {
+        const double spbS = model.samplesPerBeat (sr);
+        auto smp = std::make_shared<ClipData>();
+        smp->sampleRate = sr;
+        const int sl = (int) (0.8 * sr), lead = (int) (0.05 * sr);
+        smp->audio.setSize (2, lead + sl + (int) (0.1 * sr));   // 50 ms of silence, the sound, 100 ms of silence
+        smp->audio.clear();
+        for (int i = 0; i < sl; ++i)
+        {
+            // a decaying 1 kHz ping: loud attack, quiet tail
+            const float v = 0.5f * (float) (std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / sr) * std::exp (-3.0 * i / sl));
+            smp->audio.setSample (0, lead + i, v);
+            smp->audio.setSample (1, lead + i, v);
+        }
+        auto envAt = [&] (const RenderResult& r, juce::int64 p0, int len)
+        {
+            double acc = 0.0;
+            for (int i = 0; i < len; ++i) { const float v = r.sampleAt (RenderResult::Layer::fx, 0, p0 + i); acc += (double) v * v; }
+            return std::sqrt (acc / len);
+        };
+        const int w = (int) (0.02 * sr);
+        for (auto t : { MoveType::Riser, MoveType::RevCrash, MoveType::Impact, MoveType::Boom })
+        {
+            DropModel m = model;
+            m.samples["test"] = smp;
+            Move mv = defaultMove (t);
+            mv.sampleId = "test";
+            mv.sampleName = "ping";
+            m.moves = { mv };
+            auto r = renderDrop (m, analysis, 1);
+            if (! checkBuffer (full (*r), juce::String ("sample ") + typeName (t))) ++failures;
+            const auto drop = r->zoneEnd;
+            // the loud end of the ping must sit right before the drop (crash) / right after it (impact)
+            const double before = envAt (*r, drop - w, w), after = envAt (*r, drop, w);
+            const double early = envAt (*r, drop - sl + w, w), late = envAt (*r, drop + sl - 2 * w, w);
+            juce::String what;
+            bool ok = true;
+            if (t == MoveType::Riser)        { ok = before > 0.0 && early > before * 3.0; what = "riser sample (as is) ends on the drop"; }   // the decaying tail ends at the drop
+            else if (t == MoveType::RevCrash) { ok = before > early * 3.0 && after < before * 0.05; what = "crash sample reversed into the drop"; }
+            else                              { ok = after > late * 3.0 && before < after * 0.05; what = juce::String (typeName (t)) + " sample hits on the drop"; }
+            // and the attack must be on time: the first loud sample after the drop within 1 ms (impact / boom)
+            if (t == MoveType::Impact || t == MoveType::Boom)
+            {
+                juce::int64 first = -1;
+                const float pk = (float) after * 1.2f;
+                for (juce::int64 p = drop; p < drop + (juce::int64) (0.05 * sr) && first < 0; ++p)
+                    if (std::abs (r->sampleAt (RenderResult::Layer::fx, 0, p)) > pk * 0.3f) first = p;
+                ok &= first >= 0 && first - drop < (juce::int64) (0.001 * sr) + 2;
+            }
+            std::cout << what << ": " << (ok ? "ok" : "WRONG") << "  (before " << juce::String (before, 4) << ", after " << juce::String (after, 4)
+                      << ", early " << juce::String (early, 4) << ", late " << juce::String (late, 4) << ")\n";
+            if (! ok) { std::cout << "FAIL: " << what << "\n"; ++failures; }
+            if (maxBeatJump (*r, clip->audio) > 6.0) { std::cout << "FAIL: sample " << typeName (t) << " level jump\n"; ++failures; }
+            juce::ignoreUnused (spbS);
+        }
+    }
+
     // ---- step patterns: on steps chop / stutter, off steps follow the pattern exactly
     {
         auto tone = std::make_shared<ClipData>();

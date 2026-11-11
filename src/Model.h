@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_data_structures/juce_data_structures.h>
 #include <array>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -45,6 +46,12 @@ constexpr int numMoveTypes = (int) MoveType::NumTypes;
 
 /** Moves that play after the drop (on the downbeat) rather than inside the build zone. */
 inline bool playsAfterDrop (MoveType t) { return t == MoveType::Impact || t == MoveType::Boom; }
+
+/** Moves that can play your own sample. */
+inline bool moveTakesSample (MoveType t)
+{
+    return t == MoveType::Riser || t == MoveType::RevCrash || t == MoveType::Impact || t == MoveType::Boom;
+}
 
 /** Moves that can follow a 16-step pattern. */
 inline bool moveHasPattern (MoveType t) { return t == MoveType::Chops || t == MoveType::Stutter; }
@@ -93,6 +100,11 @@ struct Move
     // repeating (bit k = step k + 1). Off = the move's built-in rhythm.
     bool patternOn = false;
     juce::uint32 pattern = 0xffffu;
+
+    // Riser / Reverse Crash / Impact / Sub Boom: your own sample instead of the built-in sound.
+    // The audio lives in DropModel::samples (and in the project); presets keep the file path.
+    juce::String sampleId, sampleName, samplePath;
+    bool hasSample() const { return sampleId.isNotEmpty(); }
 
     // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
     int curve = 0;
@@ -178,6 +190,7 @@ struct DropModel
 {
     ClipPtr music;       // AUDIO 1
     ClipPtr drums;       // AUDIO 2 (optional drum/808 stem)
+    std::map<juce::String, ClipPtr> samples;   // your own riser / impact samples, by Move::sampleId
 
     double bpm = 130.0;
     bool tempoSync = true;

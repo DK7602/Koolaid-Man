@@ -86,6 +86,11 @@ public:
     void modelChanged (bool markPresetDirty = true);
 
     bool loadAudioFile (const juce::File& file, int slot, juce::String& error);
+
+    /** Your own sample for a Riser / Reverse Crash / Impact / Sub Boom move in the stack
+        (by uid). Stored with the project; presets remember the file path. */
+    bool loadMoveSample (int uid, const juce::File& file, juce::String& error);
+    void clearMoveSample (int uid);
     void clearSlot (int slot);
     bool hasMusic() const { return model.music != nullptr; }
 
@@ -155,6 +160,9 @@ private:
     km::DropModel model;
     SessionSettings settings;
     SourcePtr musicSource, drumSource;
+    std::map<juce::String, SourcePtr> sampleSources;   // your own samples, by Move::sampleId
+    SourcePtr readAudioFile (const juce::File&, double maxSeconds, double minSeconds, juce::String& error);
+    void restoreMissingSamples();                      // reload samples that presets point to on disk
 
     double engineRate = 48000.0;
     km::RenderThread renderThread;

@@ -239,6 +239,7 @@ juce::String Move::stackLabel() const
     const juce::String div = d[(size_t) juce::jlimit (0, (int) d.size() - 1, division)].longLabel;
     const auto modes = modeNames (type);
     const juce::String modeName = modes[juce::jlimit (0, juce::jmax (0, modes.size() - 1), mode)];
+    const juce::String sampleLabel = "\"" + (sampleName.length() > 14 ? sampleName.substring (0, 13) + "..." : sampleName) + "\"";
 
     switch (type)
     {
@@ -261,12 +262,12 @@ juce::String Move::stackLabel() const
         case MoveType::Bass808:   return "808 (" + modeName + ")";
         case MoveType::Hats:      return "Hats (" + modeName + ")";
         case MoveType::Atmos:     return "Atmos (" + modeName + ")";
-        case MoveType::Riser:     return "Riser (" + div + ", " + modeName + ")";
-        case MoveType::RevCrash:  return "Reverse Crash (" + div + ")";
+        case MoveType::Riser:     return "Riser (" + div + ", " + (hasSample() ? sampleLabel : modeName) + ")";
+        case MoveType::RevCrash:  return "Reverse Crash (" + div + (hasSample() ? ", " + sampleLabel : juce::String()) + ")";
         case MoveType::Pump:      return "Pump (" + div + ", " + modeName + ")";
         case MoveType::Gap:       return "Drop Gap (" + div + ", " + modeName + ")";
-        case MoveType::Impact:    return "Impact (" + modeName + ")";
-        case MoveType::Boom:      return "Sub Boom (" + modeName + ")";
+        case MoveType::Impact:    return "Impact (" + (hasSample() ? sampleLabel : modeName) + ")";
+        case MoveType::Boom:      return "Sub Boom (" + (hasSample() ? sampleLabel : modeName) + ")";
         case MoveType::DelayThrow:
             return juce::String (mode == 0 ? "Delay Throw (" : (mode == 1 ? "Ping-Pong (" : "Tape Echo (")) + div + ")";
         case MoveType::Bitcrush:
@@ -367,6 +368,12 @@ juce::ValueTree Move::toTree() const
         t.setProperty ("tensionLink", true, nullptr);
     if (locked)
         t.setProperty ("locked", true, nullptr);
+    if (sampleId.isNotEmpty())
+    {
+        t.setProperty ("sampleId", sampleId, nullptr);
+        t.setProperty ("sampleName", sampleName, nullptr);
+        t.setProperty ("samplePath", samplePath, nullptr);
+    }
     if (patternOn)
         t.setProperty ("patternOn", true, nullptr);
     if (pattern != 0xffffu)
@@ -396,6 +403,9 @@ Move Move::fromTree (const juce::ValueTree& t)
     m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
     m.tensionLink = t.getProperty ("tensionLink", false);
     m.locked = t.getProperty ("locked", false);
+    m.sampleId = t.getProperty ("sampleId").toString();
+    m.sampleName = t.getProperty ("sampleName").toString();
+    m.samplePath = t.getProperty ("samplePath").toString();
     m.patternOn = t.getProperty ("patternOn", false);
     m.pattern = (juce::uint32) (int) t.getProperty ("pattern", 0xffff) & 0xffffu;
     m.curve = juce::jlimit (0, numCurveShapes - 1, (int) t.getProperty ("curve", 0));
@@ -421,7 +431,7 @@ bool Move::operator== (const Move& o) const
         && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed
         && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd))
         && curve == o.curve && (curve != curveCustom || curvePoints == o.curvePoints) && tensionLink == o.tensionLink && locked == o.locked
-        && patternOn == o.patternOn && pattern == o.pattern;
+        && patternOn == o.patternOn && pattern == o.pattern && sampleId == o.sampleId;
 }
 
 juce::String keyName (int tonic, bool minor)

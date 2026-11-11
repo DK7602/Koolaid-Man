@@ -477,6 +477,68 @@ public:
             p.modelChanged (true);
         }
 
+        // ---- your own sample: loads into a move, renders, and is saved with the project
+        {
+            auto& m = p.getModel();
+            m.moves.clear();
+            m.moves.push_back (km::defaultMove (km::MoveType::Impact));
+            p.modelChanged (true);
+            const int uid = m.moves.front().uid;
+
+            // a short sample on disk
+            const auto wavFile = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("koolaid-test-hit.wav");
+            {
+                juce::AudioBuffer<float> hit (1, 24000);
+                for (int i = 0; i < hit.getNumSamples(); ++i)
+                    hit.setSample (0, i, 0.6f * (float) (std::sin (juce::MathConstants<double>::twoPi * 180.0 * i / 48000.0) * std::exp (-6.0 * i / 24000.0)));
+                wavFile.deleteFile();
+                std::unique_ptr<juce::OutputStream> os = std::make_unique<juce::FileOutputStream> (wavFile);
+                juce::WavAudioFormat wav;
+                auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (48000.0).withNumChannels (1).withBitsPerSample (24);
+                if (auto wr = wav.createWriterFor (os, opts)) wr->writeFromAudioSampleBuffer (hit, 0, hit.getNumSamples());
+            }
+            juce::String err;
+            check (p.loadMoveSample (uid, wavFile, err), "sample loaded into the Impact move " + err);
+            check (m.moves.front().hasSample() && m.moves.front().sampleName == "koolaid-test-hit", "move uses the sample: " + m.moves.front().stackLabel());
+            check (m.samples.count (m.moves.front().sampleId) == 1, "sample is in the session's sample pool");
+
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            wavFile.deleteFile();   // the project must not need the file any more
+            KoolaidProcessor q;
+            q.setStateInformation (mb.getData(), (int) mb.getSize());
+            const auto& qm = q.getModel();
+            const bool restored = ! qm.moves.empty() && qm.moves.front().hasSample()
+                                  && qm.samples.count (qm.moves.front().sampleId) == 1
+                                  && qm.samples.at (qm.moves.front().sampleId) != nullptr
+                                  && qm.samples.at (qm.moves.front().sampleId)->audio.getNumSamples() > 1000;
+            check (restored, "sample restored from the project (file deleted)");
+
+            // a preset only remembers the path: it comes back while the file exists
+            km::Preset pre;
+            pre.name = "With Sample";
+            pre.moves = { m.moves.front() };
+            pre.moves.front().sampleId = "from-preset";
+            pre.moves.front().samplePath = wavFile.getFullPathName();
+            {
+                juce::AudioBuffer<float> hit (2, 4800);
+                hit.clear();
+                for (int i = 0; i < 4800; ++i) hit.setSample (0, i, 0.3f * (float) std::sin (i * 0.05));
+                std::unique_ptr<juce::OutputStream> os = std::make_unique<juce::FileOutputStream> (wavFile);
+                juce::WavAudioFormat wav;
+                auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (48000.0).withNumChannels (2).withBitsPerSample (24);
+                if (auto wr = wav.createWriterFor (os, opts)) wr->writeFromAudioSampleBuffer (hit, 0, hit.getNumSamples());
+            }
+            p.applyPreset (pre);
+            check (p.getModel().samples.count ("from-preset") == 1, "preset sample reloaded from its file");
+            wavFile.deleteFile();
+
+            p.clearMoveSample (p.getModel().moves.front().uid);
+            check (! p.getModel().moves.front().hasSample(), "back to the built-in sound");
+            p.getModel().moves.clear();
+            p.modelChanged (true);
+        }
+
         // ---- A/B compare
         {
             auto& m = p.getModel();

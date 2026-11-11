@@ -286,6 +286,11 @@ void MoveStackView::showRowMenu (int index)
     menu.addItem (7, "Reset Timing (Auto)", m.customRegion);
     menu.addItem (8, "Link to Tension", true, m.tensionLink);
     menu.addItem (9, "Lock (Keep on ROLL)", true, m.locked);
+    if (km::moveTakesSample (m.type))
+    {
+        menu.addItem (12, m.hasSample() ? "Your Sample: " + m.sampleName + " (Change...)" : "Use Your Own Sample...", true, m.hasSample());
+        menu.addItem (13, "Built-In Sound", m.hasSample());
+    }
     if (km::moveHasPattern (m.type))
     {
         menu.addItem (10, "Step Pattern - Draw It...", true, m.patternOn);
@@ -316,7 +321,11 @@ void MoveStackView::showRowMenu (int index)
             if (result - 200 == km::curveCustom) { if (onEditCurve) onEditCurve (uid); return; }
             m.curve = result - 200;
         }
-        else if (result >= 100) m.mode = result - 100;
+        else if (result >= 100)
+        {
+            m.mode = result - 100;
+            m.sampleId = {}; m.sampleName = {}; m.samplePath = {};   // a built-in type replaces your sample
+        }
         else if (result == 1 && idx > 0) std::swap (mv[(size_t) idx], mv[(size_t) idx - 1]);
         else if (result == 2 && idx + 1 < (int) mv.size()) std::swap (mv[(size_t) idx], mv[(size_t) idx + 1]);
         else if (result == 3) { auto copy = m; copy.uid = 0; mv.insert (mv.begin() + idx + 1, copy); }
@@ -341,6 +350,9 @@ void MoveStackView::showRowMenu (int index)
         else if (result == 9) m.locked = ! m.locked;
         else if (result == 10) { m.patternOn = true; if (onStackEdited) onStackEdited(); if (onEditPattern) onEditPattern (uid); refresh(); return; }
         else if (result == 11) m.patternOn = false;
+        else if (result == 12) { if (onLoadSample) onLoadSample (uid); return; }
+        else if (result == 13) { m.sampleId = {}; m.sampleName = {}; m.samplePath = {}; }
+
         if (onStackEdited) onStackEdited();
         refresh();
     });

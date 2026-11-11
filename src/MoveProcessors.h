@@ -14,6 +14,7 @@ struct MoveContext
     juce::int64 dropInClip = -1;                      // where the drop lands in the source clip (-1 = unknown)
     const juce::AudioBuffer<float>* clip = nullptr;   // the untouched music clip
     const DrumAnalysis* drums = nullptr;              // onsets relative to clip start
+    const ClipData* userSample = nullptr;             // the move's own sample (Riser / Crash / Impact / Boom), if any
 
     // the song's key root for tuning (0 = unknown / tuning off): pitch class 0..11
     int tonic = -1;

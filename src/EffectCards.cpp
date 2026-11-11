@@ -757,6 +757,23 @@ void EffectCards::selectType (MoveType t)
         if (m.type == t) { stack.select (m.uid); return; }
 }
 
+km::MoveType EffectCards::cardTypeAt (juce::Point<int> p) const
+{
+    for (auto& c : cards)
+        if (c->page == page && c->bounds.contains (p))
+            return c->type;
+    return MoveType::NumTypes;
+}
+
+int EffectCards::ensureInStack (MoveType t)
+{
+    if (! hasInstance (t))
+        togglePower (t);
+    else
+        selectType (t);
+    return target (t).uid;
+}
+
 void EffectCards::togglePower (MoveType t)
 {
     auto& model = proc.getModel();
@@ -794,6 +811,13 @@ void EffectCards::showTitleMenu (Card& card)
     for (int i = 0; i < modes.size(); ++i)
         menu.addItem (100 + i, modes[i], true, m.mode == i);
     menu.addSeparator();
+    if (km::moveTakesSample (t))
+    {
+        const bool has = m.hasSample() && hasInstance (t);
+        menu.addItem (5, has ? "Your Sample: " + m.sampleName + " (Change...)" : "Use Your Own Sample... (or drop a file here)", true, has);
+        menu.addItem (6, "Built-In Sound", has);
+        menu.addSeparator();
+    }
     if (km::moveHasPattern (t))
     {
         menu.addItem (3, "Step Pattern - Draw It...", true, m.patternOn && hasInstance (t));
@@ -814,8 +838,21 @@ void EffectCards::showTitleMenu (Card& card)
         auto& model = proc.getModel();
         if (r >= 100)
         {
+            if (hasInstance (t) && target (t).hasSample()) proc.clearMoveSample (target (t).uid);   // a built-in type replaces your sample
             target (t).mode = r - 100;
             if (! hasInstance (t)) { togglePower (t); return; }
+        }
+        else if (r == 5)
+        {
+            if (onLoadSample) onLoadSample (ensureInStack (t));
+            return;
+        }
+        else if (r == 6)
+        {
+            if (hasInstance (t)) proc.clearMoveSample (target (t).uid);
+            if (onStackChanged) onStackChanged();
+            refresh();
+            return;
         }
         else if (r == 3 || r == 4)
         {
@@ -925,7 +962,8 @@ void EffectCards::refresh()
         if (c->artMode)
         {
             const auto names = km::modeNames (c->type);
-            c->artMode->setText (names[juce::jlimit (0, names.size() - 1, m.mode)].toUpperCase());
+            c->artMode->setText (m.hasSample() && hasInstance (c->type) ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85 ")) + m.sampleName.toUpperCase()
+                                                                        : names[juce::jlimit (0, names.size() - 1, m.mode)].toUpperCase());
         }
         if (c->page >= 1 && c->knob && ! c->knob->isDragging())
             c->knob->setValue (m.knob);

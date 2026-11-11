@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include <set>
 #include "PluginEditor.h"
 #include "DrumDetector.h"
 #include "Mastering.h"
@@ -562,6 +563,9 @@ void KoolaidProcessor::rebuildClips()
 {
     model.music = makeClip (musicSource);
     model.drums = makeClip (drumSource);
+    model.samples.clear();
+    for (auto& [id, src] : sampleSources)
+        model.samples[id] = makeClip (src);
 }
 
 void KoolaidProcessor::setDefaultZone()
@@ -575,20 +579,20 @@ void KoolaidProcessor::setDefaultZone()
     if (end - model.zoneStart < 0.25) model.zoneStart = 0.0;
 }
 
-bool KoolaidProcessor::loadAudioFile (const juce::File& file, int slot, juce::String& error)
+SourcePtr KoolaidProcessor::readAudioFile (const juce::File& file, double maxSeconds, double minSeconds, juce::String& error)
 {
     std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
     if (reader == nullptr)
     {
         error = "Couldn't read " + file.getFileName() + " (supported: WAV, AIFF, FLAC, MP3, OGG).";
-        return false;
+        return nullptr;
     }
-    const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);
+    const auto maxLen = (juce::int64) (reader->sampleRate * maxSeconds);
     const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
-    if (len < (int) (reader->sampleRate * 0.25))
+    if (len < (int) (reader->sampleRate * minSeconds) || len <= 0)
     {
         error = "That file is too short.";
-        return false;
+        return nullptr;
     }
     auto s = std::make_shared<SourceAudio>();
     s->sampleRate = reader->sampleRate;
@@ -598,6 +602,66 @@ bool KoolaidProcessor::loadAudioFile (const juce::File& file, int slot, juce::St
     reader->read (&s->audio, 0, len, 0, true, reader->numChannels > 1);
     if (reader->numChannels == 1)
         s->audio.copyFrom (1, 0, s->audio, 0, 0, len);
+    return s;
+}
+
+bool KoolaidProcessor::loadMoveSample (int uid, const juce::File& file, juce::String& error)
+{
+    Move* mv = nullptr;
+    for (auto& m : model.moves) if (m.uid == uid) mv = &m;
+    if (mv == nullptr || ! moveTakesSample (mv->type))
+    {
+        error = "Pick a Riser, Reverse Crash, Impact or Sub Boom move first.";
+        return false;
+    }
+    auto s = readAudioFile (file, 30.0, 0.02, error);   // one-shots and risers: up to 30 seconds
+    if (s == nullptr)
+        return false;
+    const auto id = juce::Uuid().toString();
+    sampleSources[id] = s;
+    model.samples[id] = makeClip (s);
+    mv->sampleId = id;
+    mv->sampleName = s->name;
+    mv->samplePath = file.getFullPathName();
+    modelChanged (true);
+    return true;
+}
+
+void KoolaidProcessor::clearMoveSample (int uid)
+{
+    for (auto& m : model.moves)
+        if (m.uid == uid)
+        {
+            m.sampleId = {};
+            m.sampleName = {};
+            m.samplePath = {};
+        }
+    modelChanged (true);
+}
+
+void KoolaidProcessor::restoreMissingSamples()
+{
+    // moves from a preset (or a project whose sample is gone) point at a file on disk
+    for (auto* list : { &model.moves, &abSlots[0].moves, &abSlots[1].moves })
+        for (auto& m : *list)
+        {
+            if (! m.hasSample() || sampleSources.count (m.sampleId) > 0 || m.samplePath.isEmpty()) continue;
+            const juce::File f (m.samplePath);
+            juce::String err;
+            if (f.existsAsFile())
+                if (auto s = readAudioFile (f, 30.0, 0.02, err))
+                {
+                    sampleSources[m.sampleId] = s;
+                    model.samples[m.sampleId] = makeClip (s);
+                }
+        }
+}
+
+bool KoolaidProcessor::loadAudioFile (const juce::File& file, int slot, juce::String& error)
+{
+    auto s = readAudioFile (file, 600.0, 0.25, error);
+    if (s == nullptr)
+        return false;
 
     if (slot == 1)
     {
@@ -626,6 +690,7 @@ void KoolaidProcessor::applyPreset (const Preset& p)
 {
     model.moves = p.moves;
     for (auto& m : model.moves) m.uid = 0;
+    restoreMissingSamples();
     settings.presetName = p.name;
     settings.presetDirty = false;
     modelChanged (false);
@@ -856,6 +921,25 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
         t.appendChild (a, nullptr);
     }
 
+    // your own samples that the moves (either A/B version, or a card) use
+    {
+        std::set<juce::String> used;
+        for (auto& m : model.moves) if (m.hasSample()) used.insert (m.sampleId);
+        for (auto& m : model.templates) if (m.hasSample()) used.insert (m.sampleId);
+        if (abUsed[1 - abActive])
+            for (auto& m : abSlots[1 - abActive].moves) if (m.hasSample()) used.insert (m.sampleId);
+        for (auto& id : used)
+        {
+            auto it = sampleSources.find (id);
+            if (it == sampleSources.end() || it->second == nullptr) continue;
+            juce::ValueTree a ("SAMPLE");
+            a.setProperty ("id", id, nullptr);
+            a.setProperty ("name", it->second->name, nullptr);
+            a.setProperty ("flac", encodedAudio (it->second), nullptr);
+            t.appendChild (a, nullptr);
+        }
+    }
+
     juce::MemoryOutputStream mos (destData, false);
     t.writeToStream (mos);
 }
@@ -907,8 +991,20 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     musicSource = nullptr;
     drumSource = nullptr;
+    sampleSources.clear();
     for (auto c : t)
     {
+        if (c.hasType ("SAMPLE"))
+        {
+            if (auto* mb = c.getProperty ("flac").getBinaryData())
+                if (auto smp = decodeFlac (*mb, c.getProperty ("name").toString()))
+                {
+                    sampleSources[c.getProperty ("id").toString()] = smp;
+                    const juce::ScopedLock sl (flacLock);
+                    flacCache.push_back ({ smp, *mb });
+                }
+            continue;
+        }
         if (! c.hasType ("AUDIO")) continue;
         if (auto* mb = c.getProperty ("flac").getBinaryData())
         {
@@ -941,6 +1037,7 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     }
 
     rebuildClips();
+    restoreMissingSamples();
     restoring = true;
     modelChanged (false);
     restoring = false;
@@ -964,7 +1061,12 @@ juce::MemoryBlock KoolaidProcessor::encodedAudio (const SourcePtr& src)
     const juce::ScopedLock sl (flacLock);
     // forget sources that are no longer loaded
     flacCache.erase (std::remove_if (flacCache.begin(), flacCache.end(),
-                                     [this, &src] (const auto& e) { return e.first != src && e.first != musicSource && e.first != drumSource; }),
+                                     [this, &src] (const auto& e)
+                                     {
+                                         if (e.first == src || e.first == musicSource || e.first == drumSource) return false;
+                                         for (auto& kv : sampleSources) if (kv.second == e.first) return false;
+                                         return true;
+                                     }),
                      flacCache.end());
     for (auto& e : flacCache)
         if (e.first == src)
