@@ -43,7 +43,9 @@ private:
         juce::int64 numSamples = 0;
         double sampleRate = 48000.0;
     };
-    static Peaks makePeaks (const juce::AudioBuffer<float>&, double sr);
+    /** A piece of the waveform: samples of 'buffer' placed at absolute position 'start'. */
+    struct Segment { const juce::AudioBuffer<float>* buffer; juce::int64 start; juce::int64 length; };
+    static Peaks makePeaks (const std::vector<Segment>&, juce::int64 totalLength, double sr);
 
     juce::Rectangle<float> contentArea() const;
     float beatToX (double beat) const;

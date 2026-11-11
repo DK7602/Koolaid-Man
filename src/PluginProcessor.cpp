@@ -180,6 +180,14 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                         writeFrom = numSamples;
                     }
                 }
+                // the transport jumped (cycle loop, locate): end the capture at the jump
+                const double beatsPerBlock = numSamples * bpm / (60.0 * sr);
+                if (capturing.load() && writeFrom == 0 && std::abs (ppq - captureNextPpq) > 0.05 + 0.02 * beatsPerBlock)
+                {
+                    capturing.store (false);
+                    captureDone.store (true);
+                }
+                captureNextPpq = ppq + beatsPerBlock;
                 if (capturing.load())
                 {
                     int written = captureWritten.load();
@@ -210,9 +218,24 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     }
 
     // ---- preview
+    // Hazard pointer: publish which render we're reading, then re-check it's still current.
+    // The message thread never frees a render while it's marked as in use.
     const RenderResult* r = audioResult.load();
-    const float gain = juce::Decibels::decibelsToGain (outputParam->get());
-    const bool haveAudio = r != nullptr && r->source != nullptr && r->mix.getNumSamples() > 0;
+    for (;;)
+    {
+        audioInUse.store (r);
+        const auto* again = audioResult.load();
+        if (again == r) break;
+        r = again;
+    }
+    struct ReleaseOnExit { std::atomic<const RenderResult*>& p; ~ReleaseOnExit() { p.store (nullptr); } } release { audioInUse };
+
+    // Preview Level: ramped across the block so automation doesn't zipper
+    const float gainTarget = juce::Decibels::decibelsToGain (outputParam->get());
+    const float gain0 = lastGain;
+    lastGain = gainTarget;
+    auto gainAt = [&] (int i) { return gain0 + (gainTarget - gain0) * (float) i / (float) juce::jmax (1, numSamples); };
+    const bool haveAudio = r != nullptr && r->source != nullptr && r->length > 0;
     const bool syncNow = haveAudio && syncParam->get() && hostIsPlaying && hasPpq;
     syncActive.store (syncNow);
 
@@ -220,9 +243,8 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         return;
 
     const bool original = playOriginal.load();
-    const auto& src = r->mix;
     const auto& orig = r->source->audio;
-    const juce::int64 len = src.getNumSamples(), origLen = orig.getNumSamples();
+    const juce::int64 len = r->length, origLen = orig.getNumSamples();
     // Build Amount: blend from the untouched audio (0) to the full drop (1), smoothed per block
     const float amountTarget = original ? 0.0f : buildParam->get() / 100.0f;
     const float amount0 = lastBuild;
@@ -231,7 +253,7 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     {
         const float a = amount0 + (amountTarget - amount0) * (float) i / (float) juce::jmax (1, numSamples);
         const float o = p < origLen ? orig.getSample (juce::jmin (ch, orig.getNumChannels() - 1), (int) p) : 0.0f;
-        return o + (src.getSample (juce::jmin (ch, src.getNumChannels() - 1), (int) p) - o) * a;
+        return o + (r->mixAt (ch, p) - o) * a;
     };
 
     if (syncNow)
@@ -242,6 +264,9 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
         const double startPos = (ppq - clipStartPpq) * spb;
         const bool replace = replaceInput.load();
         auto first = (juce::int64) std::floor (startPos);
+        // 5 ms crossfades where the clip starts and ends, so switching between the track and
+        // the drop never clicks
+        const double xfade = juce::jmax (16.0, 0.005 * sr);
         for (int ch = 0; ch < numOut; ++ch)
         {
             auto* out = buffer.getWritePointer (ch);
@@ -249,7 +274,10 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
             {
                 const juce::int64 p = first + i;
                 if (p >= 0 && p < len)
-                    out[i] = (replace ? 0.0f : out[i]) + sampleAt (ch, p, i) * gain;
+                {
+                    const float w = (float) juce::jmin (1.0, (double) juce::jmin (p + 1, len - p) / xfade);
+                    out[i] = out[i] * (replace ? 1.0f - w : 1.0f) + sampleAt (ch, p, i) * gainAt (i) * w;
+                }
             }
         }
         playhead.store (first + numSamples);
@@ -270,7 +298,7 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
                 else { stillPlaying = false; break; }
             }
             for (int ch = 0; ch < numOut; ++ch)
-                buffer.getWritePointer (ch)[i] += sampleAt (ch, pos, i) * gain;
+                buffer.getWritePointer (ch)[i] += sampleAt (ch, pos, i) * gainAt (i);
             ++pos;
         }
         playhead.store (pos);
@@ -300,8 +328,9 @@ void KoolaidProcessor::handleAsyncUpdate()
 void KoolaidProcessor::timerCallback()
 {
     const auto now = juce::Time::getMillisecondCounter();
+    const auto* inUse = audioInUse.load();
     retired.erase (std::remove_if (retired.begin(), retired.end(),
-                                   [now] (const auto& p) { return now - p.second > 2000; }),
+                                   [now, inUse] (const auto& p) { return now - p.second > 500 && p.first.get() != inUse; }),
                    retired.end());
 
     if (needsRebuild.exchange (false))
@@ -357,7 +386,7 @@ void KoolaidProcessor::updatePlayRange()
     const double spb = model.samplesPerBeat (sr);
     juce::int64 len = model.music != nullptr ? model.music->audio.getNumSamples() : 0;
     if (currentResult != nullptr && currentResult->source == model.music)
-        len = juce::jmax<juce::int64> (len, currentResult->mix.getNumSamples());   // includes an after-drop tail
+        len = juce::jmax<juce::int64> (len, currentResult->length);   // includes an after-drop tail
     const auto zs = (juce::int64) (model.zoneStart * spb), ze = (juce::int64) (model.zoneEnd * spb);
     const auto bar = (juce::int64) (model.beatsPerBar() * spb);
 
@@ -608,7 +637,7 @@ juce::String KoolaidProcessor::exportRangeLabel (ExportRange r) const
     // Impact / Sub Boom can add a tail after the clip
     double clip = model.clipLengthBeats();
     if (currentResult != nullptr && currentResult->source == model.music && currentResult->samplesPerBeat > 0)
-        clip = juce::jmax (clip, currentResult->mix.getNumSamples() / currentResult->samplesPerBeat);
+        clip = juce::jmax (clip, currentResult->length / currentResult->samplesPerBeat);
     switch (r)
     {
         case ExportRange::FullClip:  return "FULL CLIP (" + formatLength (clip, bpb) + ")";
@@ -640,26 +669,13 @@ juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
         analysis = std::make_shared<DrumAnalysis> (analyseDrums (srcClip->audio, srcClip->sampleRate, model.samplesPerBeat (srcClip->sampleRate),
                                                                  model.beatsPerBar(), model.sensSnare, model.sens808, model.sensHats));
     }
-    const auto r = renderDrop (model, analysis, 0);
-    const int total = r->mix.getNumSamples();
+    // Reuse the render already on screen when it's up to date (no second render, no wait)
+    km::ResultPtr r = (! renderPending.load() && currentResult != nullptr && currentResult->requestId == lastRequestId
+                       && currentResult->source == model.music)
+                        ? currentResult : renderDrop (model, analysis, 0);
+    const juce::int64 total = r->length;
 
-    // Build Amount: blend each output from the untouched audio towards the full drop
-    const float amount = buildParam->get() / 100.0f;
-    auto blended = [&] (const juce::AudioBuffer<float>& processed, bool additive)
-    {
-        juce::AudioBuffer<float> out (processed);
-        if (amount < 0.999f)
-            for (int ch = 0; ch < 2; ++ch)
-                for (int i = 0; i < total; ++i)
-                {
-                    const float o = (! additive && i < r->source->audio.getNumSamples())
-                                      ? r->source->audio.getSample (juce::jmin (ch, r->source->audio.getNumChannels() - 1), i) : 0.0f;
-                    out.setSample (ch, i, o + (processed.getSample (ch, i) - o) * amount);
-                }
-        return out;
-    };
-
-    int a = 0, b = total;
+    int a = 0, b = (int) total;
     switch (settings.exportRange)
     {
         case ExportRange::BuildZone: a = (int) r->zoneStart; b = (int) r->zoneEnd; break;
@@ -672,17 +688,35 @@ juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
         return {};
     }
 
+    // Build Amount: blend each output from the untouched audio towards the full drop
+    const float amount = buildParam->get() / 100.0f;
+    using Layer = km::RenderResult::Layer;
+    auto section = [&] (Layer layer)
+    {
+        auto out = r->copyOf (layer, a, b);
+        if (amount < 0.999f)
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < out.getNumSamples(); ++i)
+                {
+                    const juce::int64 p = a + i;
+                    const float o = (layer != Layer::fx && p < r->source->audio.getNumSamples())
+                                      ? r->source->audio.getSample (juce::jmin (ch, r->source->audio.getNumChannels() - 1), (int) p) : 0.0f;
+                    out.setSample (ch, i, o + (out.getSample (ch, i) - o) * amount);
+                }
+        return out;
+    };
+
     std::vector<std::pair<juce::String, juce::AudioBuffer<float>>> outputs;
     switch (settings.exportRange)
     {
-        case ExportRange::FxLayer: outputs.push_back ({ "FX", blended (r->fx, true) }); break;
+        case ExportRange::FxLayer: outputs.push_back ({ "FX", section (Layer::fx) }); break;
         case ExportRange::Stems:
-            outputs.push_back ({ "Stem Music", blended (r->music, false) });
-            outputs.push_back ({ "Stem FX", blended (r->fx, true) });
+            outputs.push_back ({ "Stem Music", section (Layer::music) });
+            outputs.push_back ({ "Stem FX", section (Layer::fx) });
             break;
-        case ExportRange::FullClip:  outputs.push_back ({ "Full", blended (r->mix, false) }); break;
-        case ExportRange::BuildZone: outputs.push_back ({ "Zone", blended (r->mix, false) }); break;
-        case ExportRange::ZoneToEnd: outputs.push_back ({ "Drop", blended (r->mix, false) }); break;
+        case ExportRange::FullClip:  outputs.push_back ({ "Full", section (Layer::mix) }); break;
+        case ExportRange::BuildZone: outputs.push_back ({ "Zone", section (Layer::mix) }); break;
+        case ExportRange::ZoneToEnd: outputs.push_back ({ "Drop", section (Layer::mix) }); break;
     }
 
     const bool aiff = settings.exportFormat == ExportFormat::Aiff24;
@@ -715,12 +749,9 @@ juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
             file.deleteFile();
             return files;
         }
-        juce::AudioBuffer<float> section (2, b - a);
-        for (int ch = 0; ch < 2; ++ch)
-            section.copyFrom (ch, 0, buffer, ch, a, b - a);
         if (bits == 16)
-            km::ditherTo16Bit (section);   // TPDF dither with noise shaping instead of plain truncation
-        writer->writeFromAudioSampleBuffer (section, 0, section.getNumSamples());
+            km::ditherTo16Bit (buffer);   // TPDF dither with noise shaping instead of plain truncation
+        writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
         writer.reset();
         files.add (file);
     }
@@ -784,7 +815,7 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
         juce::ValueTree a ("AUDIO");
         a.setProperty ("slot", key, nullptr);
         a.setProperty ("name", src->name, nullptr);
-        a.setProperty ("flac", encodeFlac (*src), nullptr);
+        a.setProperty ("flac", encodedAudio (src), nullptr);
         t.appendChild (a, nullptr);
     }
 
@@ -840,6 +871,12 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
         if (auto* mb = c.getProperty ("flac").getBinaryData())
         {
             auto s = decodeFlac (*mb, c.getProperty ("name").toString());
+            if (s != nullptr)
+            {
+                // remember the FLAC we just read, so the next save doesn't encode it again
+                const juce::ScopedLock sl (flacLock);
+                flacCache.push_back ({ s, *mb });
+            }
             if (c.getProperty ("slot").toString() == "drums") drumSource = s;
             else musicSource = s;
         }
@@ -870,6 +907,21 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     committed = captureEdit();
     lastEditTime = 0;
     if (onModelReplaced) onModelReplaced();
+}
+
+//==============================================================================
+juce::MemoryBlock KoolaidProcessor::encodedAudio (const SourcePtr& src)
+{
+    const juce::ScopedLock sl (flacLock);
+    // forget sources that are no longer loaded
+    flacCache.erase (std::remove_if (flacCache.begin(), flacCache.end(),
+                                     [this, &src] (const auto& e) { return e.first != src && e.first != musicSource && e.first != drumSource; }),
+                     flacCache.end());
+    for (auto& e : flacCache)
+        if (e.first == src)
+            return e.second;
+    flacCache.push_back ({ src, encodeFlac (*src) });
+    return flacCache.back().second;
 }
 
 //==============================================================================

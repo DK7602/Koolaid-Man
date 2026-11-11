@@ -42,13 +42,18 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         total = (int) std::llround (std::ceil ((res->zoneEnd + tail) / barSamples - 1.0e-6) * barSamples);
     }
     res->postLength = tail;
+    res->length = total;
 
-    res->mix.setSize (2, total);
-    res->fx.setSize (2, total);
+    // only [regionStart, total) is stored; before that the output is the untouched clip
+    const int R = (int) res->zoneStart;
+    res->regionStart = R;
+    const int regionLen = total - R;
+    res->mix.setSize (2, regionLen);
+    res->fx.setSize (2, regionLen);
     res->mix.clear();
     res->fx.clear();
     for (int ch = 0; ch < 2; ++ch)
-        res->mix.copyFrom (ch, 0, clip, juce::jmin (ch, clip.getNumChannels() - 1), 0, clipLen);
+        res->mix.copyFrom (ch, 0, clip, juce::jmin (ch, clip.getNumChannels() - 1), R, clipLen - R);
 
     const int n = (int) (res->zoneEnd - res->zoneStart);
     if (n < 64)
@@ -60,7 +65,7 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     juce::AudioBuffer<float> main (2, n), fx (2, n);
     fx.clear();
     for (int ch = 0; ch < 2; ++ch)
-        main.copyFrom (ch, 0, res->mix, ch, (int) res->zoneStart, n);
+        main.copyFrom (ch, 0, res->mix, ch, 0, n);
 
     MoveContext ctx;
     ctx.sampleRate = sr;
@@ -191,37 +196,39 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     res->music.makeCopyOf (res->mix);
     for (int ch = 0; ch < 2; ++ch)
     {
-        res->music.copyFrom (ch, (int) res->zoneStart, main, ch, 0, n);
-        auto* out = res->mix.getWritePointer (ch, (int) res->zoneStart);
+        res->music.copyFrom (ch, 0, main, ch, 0, n);
+        auto* out = res->mix.getWritePointer (ch, 0);
         auto* m = main.getReadPointer (ch);
         auto* f = fx.getReadPointer (ch);
         for (int i = 0; i < n; ++i)
             out[i] = m[i] + f[i];
-        res->fx.copyFrom (ch, (int) res->zoneStart, fx, ch, 0, n);
+        res->fx.copyFrom (ch, 0, fx, ch, 0, n);
     }
 
     // True-peak limiting: -1 dBTP, or the track's own true peak if it is already mastered
     // hotter (never above -0.1 dBTP), so the build matches the audio around it.
     {
-        const float origTp = measureTruePeak (original, 0, n, sr);
-        const float ceiling = juce::jlimit (juce::Decibels::decibelsToGain (-1.0f), juce::Decibels::decibelsToGain (-0.1f), origTp);
-        res->limiterReductionDb = truePeakLimit (res->mix, (int) res->zoneStart, n, sr, ceiling);
-        truePeakLimit (res->fx, (int) res->zoneStart, n, sr, ceiling);
-        truePeakLimit (res->music, (int) res->zoneStart, n, sr, ceiling);
+        // -1 dBTP; where the original was already hotter, it's allowed its own level
+        const float ceiling = juce::Decibels::decibelsToGain (-1.0f);
+        // one gain curve, computed on the mix, applied to the stems too, so music + fx == mix
+        const auto gain = truePeakGain (res->mix, 0, n, sr, ceiling, &original, 0);
+        res->limiterReductionDb = applyGain (res->mix, 0, gain);
+        applyGain (res->fx, 0, gain);
+        applyGain (res->music, 0, gain);
         res->ceilingDb = juce::Decibels::gainToDecibels (ceiling);
     }
 
     // micro fades either side of the drop so the hit lands without a click
     const int dropFade = juce::jmin (n, 64);
-    for (auto* buf : { &res->mix, &res->music })
+    for (auto* buf : { &res->mix, &res->music, &res->fx })   // all three, so the stems still add up
         for (int ch = 0; ch < 2; ++ch)
         {
-            auto* out = buf->getWritePointer (ch, (int) res->zoneStart);
+            auto* out = buf->getWritePointer (ch, 0);
             for (int i = 0; i < dropFade; ++i)
                 out[n - dropFade + i] *= (float) (dropFade - i) / dropFade;
             if (res->zoneEnd + 24 < total)
             {
-                auto* post = buf->getWritePointer (ch, (int) res->zoneEnd);
+                auto* post = buf->getWritePointer (ch, n);
                 for (int i = 0; i < 24; ++i)
                     post[i] *= (float) i / 24.0f;
             }
@@ -253,17 +260,20 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
             for (int ch = 0; ch < 2; ++ch)
                 post.addFrom (ch, off, part, ch, 0, len);
         }
-        // what was already there after the drop (if anything) sets the ceiling, else -1 dBTP
-        const int origPost = juce::jmax (0, juce::jmin (postLen, clipLen - (int) res->zoneEnd));
-        const float origTp = origPost > 0 ? measureTruePeak (res->mix, (int) res->zoneEnd, origPost, sr) : 0.0f;
-        const float ceiling = juce::jlimit (juce::Decibels::decibelsToGain (-1.0f), juce::Decibels::decibelsToGain (-0.1f), origTp);
+        // -1 dBTP, but the audio that was already after the drop keeps its own level
+        juce::AudioBuffer<float> before (2, postLen);
+        for (int ch = 0; ch < 2; ++ch)
+            before.copyFrom (ch, 0, res->mix, ch, n, postLen);
+        const float ceiling = juce::Decibels::decibelsToGain (-1.0f);
         for (int ch = 0; ch < 2; ++ch)
         {
-            res->mix.addFrom (ch, (int) res->zoneEnd, post, ch, 0, postLen);
-            res->fx.addFrom (ch, (int) res->zoneEnd, post, ch, 0, postLen);
+            res->mix.addFrom (ch, n, post, ch, 0, postLen);
+            res->fx.addFrom (ch, n, post, ch, 0, postLen);
         }
-        truePeakLimit (res->mix, (int) res->zoneEnd, postLen, sr, ceiling);
-        truePeakLimit (res->fx, (int) res->zoneEnd, postLen, sr, ceiling);
+        const auto gain = truePeakGain (res->mix, n, postLen, sr, ceiling, &before, 0);
+        applyGain (res->mix, n, gain);
+        applyGain (res->fx, n, gain);
+        applyGain (res->music, n, gain);
     }
     return res;
 }

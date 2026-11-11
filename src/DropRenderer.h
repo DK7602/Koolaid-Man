@@ -7,13 +7,50 @@
 namespace km
 {
 
-/** One finished render. Immutable once published. */
+/** One finished render. Immutable once published.
+
+    Only the part that can change is stored: mix / fx / music hold the samples from
+    regionStart (the start of the build zone) to the end of the output. Before
+    regionStart the output is simply the untouched clip, read from 'source'. This keeps
+    renders fast and small even when a whole song is loaded. */
 struct RenderResult
 {
+    enum class Layer { mix, fx, music };
+
     ClipPtr source;                     // the untouched clip (for A/B and display)
-    juce::AudioBuffer<float> mix;       // full clip length with the processed zone
-    juce::AudioBuffer<float> fx;        // fx layer only (full clip length)
-    juce::AudioBuffer<float> music;     // processed music without the fx layer (for stems)
+    juce::AudioBuffer<float> mix;       // [regionStart, length): processed music + fx layer
+    juce::AudioBuffer<float> fx;        // [regionStart, length): fx layer only
+    juce::AudioBuffer<float> music;     // [regionStart, length): processed music only (stems)
+    juce::int64 regionStart = 0;
+    juce::int64 length = 0;             // full output length (the clip plus any after-drop tail)
+
+    float sampleAt (Layer layer, int ch, juce::int64 p) const noexcept
+    {
+        if (p < 0 || p >= length) return 0.0f;
+        if (p < regionStart)
+        {
+            if (layer == Layer::fx || source == nullptr || p >= source->audio.getNumSamples()) return 0.0f;
+            return source->audio.getSample (juce::jmin (ch, source->audio.getNumChannels() - 1), (int) p);
+        }
+        const auto& b = layer == Layer::mix ? mix : (layer == Layer::fx ? fx : music);
+        const auto i = p - regionStart;
+        return i < b.getNumSamples() ? b.getSample (juce::jmin (ch, b.getNumChannels() - 1), (int) i) : 0.0f;
+    }
+    float mixAt (int ch, juce::int64 p) const noexcept { return sampleAt (Layer::mix, ch, p); }
+
+    /** A stereo copy of [a, b) of one layer (allocates; not for the audio thread). */
+    juce::AudioBuffer<float> copyOf (Layer layer, juce::int64 a, juce::int64 b) const
+    {
+        a = juce::jlimit<juce::int64> (0, length, a);
+        b = juce::jlimit<juce::int64> (a, length, b);
+        juce::AudioBuffer<float> out (2, (int) (b - a));
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto* d = out.getWritePointer (ch);
+            for (juce::int64 p = a; p < b; ++p) d[p - a] = sampleAt (layer, ch, p);
+        }
+        return out;
+    }
     AnalysisPtr analysis;
     double sampleRate = 48000.0;
     double samplesPerBeat = 22153.8;

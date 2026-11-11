@@ -17,24 +17,28 @@ WaveformView::WaveformView (KoolaidProcessor& p) : proc (p)
     refresh();
 }
 
-WaveformView::Peaks WaveformView::makePeaks (const juce::AudioBuffer<float>& b, double sr)
+WaveformView::Peaks WaveformView::makePeaks (const std::vector<Segment>& segments, juce::int64 total, double sr)
 {
     Peaks p;
-    p.numSamples = b.getNumSamples();
+    p.numSamples = total;
     p.sampleRate = sr;
-    const int n = b.getNumSamples();
-    const int buckets = (n + p.bucket - 1) / p.bucket;
+    const auto buckets = (int) ((total + p.bucket - 1) / p.bucket);
     p.mn.assign ((size_t) buckets, 0.0f);
     p.mx.assign ((size_t) buckets, 0.0f);
     for (int k = 0; k < buckets; ++k)
     {
         float lo = 0.0f, hi = 0.0f;
-        const int s0 = k * p.bucket, s1 = juce::jmin (n, s0 + p.bucket);
-        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        const juce::int64 s0 = (juce::int64) k * p.bucket, s1 = juce::jmin (total, s0 + p.bucket);
+        for (auto& seg : segments)
         {
-            auto r = juce::FloatVectorOperations::findMinAndMax (b.getReadPointer (ch, s0), s1 - s0);
-            lo = juce::jmin (lo, r.getStart());
-            hi = juce::jmax (hi, r.getEnd());
+            const auto a = juce::jmax (s0, seg.start), b = juce::jmin (s1, seg.start + seg.length);
+            if (b <= a || seg.buffer == nullptr) continue;
+            for (int ch = 0; ch < seg.buffer->getNumChannels(); ++ch)
+            {
+                auto r = juce::FloatVectorOperations::findMinAndMax (seg.buffer->getReadPointer (ch, (int) (a - seg.start)), (int) (b - a));
+                lo = juce::jmin (lo, r.getStart());
+                hi = juce::jmax (hi, r.getEnd());
+            }
         }
         p.mn[(size_t) k] = lo;
         p.mx[(size_t) k] = hi;
@@ -46,7 +50,7 @@ double WaveformView::clipBeats() const
 {
     double beats = proc.getModel().clipLengthBeats();
     if (auto r = proc.getResult(); r != nullptr && r->source == proc.getModel().music && r->samplesPerBeat > 0)
-        beats = juce::jmax (beats, r->mix.getNumSamples() / r->samplesPerBeat);   // after-drop tail
+        beats = juce::jmax (beats, r->length / r->samplesPerBeat);   // after-drop tail
     return beats;
 }
 
@@ -54,30 +58,39 @@ void WaveformView::refresh()
 {
     auto& m = proc.getModel();
     const auto result = proc.getResult();
-    const juce::AudioBuffer<float>* buf = nullptr;
+    std::vector<Segment> segments;
+    juce::int64 totalLen = 0;
     double sr = 48000.0;
     const void* sourceKey = nullptr;
+    auto whole = [] (const juce::AudioBuffer<float>& b) { return Segment { &b, 0, b.getNumSamples() }; };
 
     if (tab == 1)
     {
-        if (m.drums != nullptr) { buf = &m.drums->audio; sr = m.drums->sampleRate; sourceKey = m.drums.get(); }
+        if (m.drums != nullptr) { segments = { whole (m.drums->audio) }; totalLen = m.drums->audio.getNumSamples(); sr = m.drums->sampleRate; sourceKey = m.drums.get(); }
     }
     else if (result != nullptr && result->source != nullptr && result->source == m.music)
     {
-        buf = tab == 2 ? &result->fx : &result->mix;
+        // renders keep only the changed region; before it the output is the clip itself
+        if (tab == 2)
+            segments = { { &result->fx, result->regionStart, result->fx.getNumSamples() } };
+        else
+            segments = { { &result->source->audio, 0, result->regionStart },
+                         { &result->mix, result->regionStart, result->mix.getNumSamples() } };
+        totalLen = result->length;
         sr = result->sampleRate;
         sourceKey = result.get();
     }
     else if (m.music != nullptr)
     {
-        buf = &m.music->audio;
+        segments = { whole (m.music->audio) };
+        totalLen = m.music->audio.getNumSamples();
         sr = m.music->sampleRate;
         sourceKey = m.music.get();
     }
 
     if (sourceKey != peaksSource || tab != peaksTab)
     {
-        peaks = buf != nullptr ? makePeaks (*buf, sr) : Peaks();
+        peaks = ! segments.empty() ? makePeaks (segments, totalLen, sr) : Peaks();
         peaksSource = sourceKey;
         peaksTab = tab;
     }

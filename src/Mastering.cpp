@@ -51,20 +51,27 @@ float measureTruePeak (const juce::AudioBuffer<float>& b, int start, int n, doub
     return *std::max_element (env.begin(), env.end());
 }
 
-float truePeakLimit (juce::AudioBuffer<float>& b, int start, int n, double sr, float ceilingGain)
+std::vector<float> truePeakGain (const juce::AudioBuffer<float>& b, int start, int n, double sr, float ceilingGain,
+                                 const juce::AudioBuffer<float>* reference, int refStart)
 {
-    if (n <= 0) return 0.0f;
+    if (n <= 0) return {};
     const float ceiling = ceilingGain * 0.995f;   // a hair of headroom for the reconstruction filter
     const auto env = truePeakEnvelope (b, start, n);
+    // never limit below what the untouched audio already had at that moment, so a hot master
+    // isn't squashed where nothing was changed
+    std::vector<float> floorEnv;
+    if (reference != nullptr)
+        floorEnv = truePeakEnvelope (*reference, refStart, n);
 
     std::vector<float> req ((size_t) n);
     bool anyOver = false;
     for (int i = 0; i < n; ++i)
     {
-        req[(size_t) i] = env[(size_t) i] > ceiling ? ceiling / env[(size_t) i] : 1.0f;
+        const float allowed = floorEnv.empty() ? ceiling : juce::jmax (ceiling, floorEnv[(size_t) i] * 1.0001f);
+        req[(size_t) i] = env[(size_t) i] > allowed ? allowed / env[(size_t) i] : 1.0f;
         anyOver |= req[(size_t) i] < 1.0f;
     }
-    if (! anyOver) return 0.0f;
+    if (! anyOver) return {};
 
     const int look = juce::jmax (1, (int) std::lround (0.0015 * sr));
 
@@ -90,7 +97,7 @@ float truePeakLimit (juce::AudioBuffer<float>& b, int start, int n, double sr, f
     }
 
     // boxcar over the lookahead window: smooth attack that still lands under every peak
-    float minGain = 1.0f;
+    std::vector<float> out ((size_t) n);
     double acc = 0.0;
     // start the window at the first sample's gain: a peak right at the start of the
     // section (e.g. an Impact on the downbeat) can't be anticipated from outside it
@@ -100,12 +107,26 @@ float truePeakLimit (juce::AudioBuffer<float>& b, int start, int n, double sr, f
     {
         acc += g[(size_t) i] - win[(size_t) (i % look)];
         win[(size_t) (i % look)] = g[(size_t) i];
-        const float gain = (float) (acc / look);
-        minGain = juce::jmin (minGain, gain);
+        out[(size_t) i] = (float) (acc / look);
+    }
+    return out;
+}
+
+float applyGain (juce::AudioBuffer<float>& b, int start, const std::vector<float>& gain)
+{
+    float minGain = 1.0f;
+    for (size_t i = 0; i < gain.size(); ++i)
+    {
+        minGain = juce::jmin (minGain, gain[i]);
         for (int ch = 0; ch < b.getNumChannels(); ++ch)
-            b.setSample (ch, start + i, b.getSample (ch, start + i) * gain);
+            b.setSample (ch, start + (int) i, b.getSample (ch, start + (int) i) * gain[i]);
     }
     return juce::Decibels::gainToDecibels (minGain);
+}
+
+float truePeakLimit (juce::AudioBuffer<float>& b, int start, int n, double sr, float ceilingGain)
+{
+    return applyGain (b, start, truePeakGain (b, start, n, sr, ceilingGain));
 }
 
 void ditherTo16Bit (juce::AudioBuffer<float>& b, juce::uint32 seed)

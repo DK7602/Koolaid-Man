@@ -164,7 +164,10 @@ DrumAnalysis analyseDrums (const Buffer& audio, double sr, double samplesPerBeat
                                        juce::IIRCoefficients::makeLowPass (sr, 110.0) });
     const auto body = filtered (mono, { juce::IIRCoefficients::makeBandPass (sr, 210.0, 1.2) });
     const auto noise = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 1800.0), juce::IIRCoefficients::makeLowPass (sr, 8000.0) });
-    const auto high = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 7000.0), juce::IIRCoefficients::makeHighPass (sr, 7000.0) });
+    // capped at 16 kHz so detection doesn't depend on the sample rate (at 96 kHz "everything
+    // above 7 kHz" would include ultrasonic content up to 48 kHz)
+    const auto high = filtered (mono, { juce::IIRCoefficients::makeHighPass (sr, 7000.0), juce::IIRCoefficients::makeHighPass (sr, 7000.0),
+                                        juce::IIRCoefficients::makeLowPass (sr, juce::jmin (16000.0, sr * 0.45)) });
 
     const auto eLow = hopEnergyDb (low, hop);
     const auto eBody = hopEnergyDb (body, hop);

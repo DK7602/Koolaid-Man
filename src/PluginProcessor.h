@@ -159,6 +159,7 @@ private:
     km::ResultPtr pendingResult;              // from the render thread
     km::ResultPtr currentResult;              // message thread view
     std::atomic<const km::RenderResult*> audioResult { nullptr };
+    std::atomic<const km::RenderResult*> audioInUse { nullptr };   // hazard pointer: never freed while set
     std::vector<std::pair<km::ResultPtr, juce::uint32>> retired;
     std::atomic<bool> renderPending { false };
     int lastRequestId = 0;
@@ -182,12 +183,18 @@ private:
     std::atomic<int> captureStartBar { 1 };
     std::atomic<double> captureBpm { 120.0 };
     juce::SpinLock captureLock;
+
+    // the audio stored in the project is FLAC-encoded once per source, not on every save
+    juce::MemoryBlock encodedAudio (const SourcePtr&);
+    juce::CriticalSection flacLock;
+    std::vector<std::pair<SourcePtr, juce::MemoryBlock>> flacCache;
     std::atomic<bool> needsRebuild { false };
 
     juce::AudioParameterFloat* outputParam = nullptr;
     juce::AudioParameterBool* syncParam = nullptr;
     juce::AudioParameterFloat* buildParam = nullptr;
-    float lastBuild = 1.0f;
+    float lastBuild = 1.0f, lastGain = 1.0f;
+    double captureNextPpq = 0.0;
 
     std::vector<EditState> undoStack, redoStack;
     EditState committed;

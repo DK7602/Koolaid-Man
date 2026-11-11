@@ -76,8 +76,12 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKOOLAID_BUILD_TESTS=ON
       - name: Build
         run: cmake --build build --parallel
-      - name: Engine tests
+      - name: Engine tests (48 kHz)
         run: ./build/KoolaidTests_artefacts/Release/KoolaidTests "$PWD/test-wavs"
+      - name: Engine tests (44.1 kHz and 96 kHz)
+        run: |
+          ./build/KoolaidTests_artefacts/Release/KoolaidTests - 44100
+          ./build/KoolaidTests_artefacts/Release/KoolaidTests - 96000
       - name: Host tests (VST3 load, transport sync, capture, state, export)
         run: |
           cp "test-wavs/preset - Init (Clean).wav" beat.wav

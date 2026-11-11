@@ -1,6 +1,6 @@
 // Offline engine test: builds a synthetic 8-bar beat, runs drum detection and
 // renders every move/mode, every factory preset and a batch of Rolls.
-// Usage: KoolaidTests [outputDir]   (writes WAVs when an output dir is given)
+// Usage: KoolaidTests [outputDir|-] [sampleRate]   (writes WAVs when an output dir is given)
 
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Model.h"
@@ -57,6 +57,8 @@ static juce::AudioBuffer<float> makeBeat (double sr, double bpm, int bars)
     return b;
 }
 
+static juce::AudioBuffer<float> full (const RenderResult& r) { return r.copyOf (RenderResult::Layer::mix, 0, r.length); }
+
 static double rmsDb (const juce::AudioBuffer<float>& b, int start, int len)
 {
     double s = 0;
@@ -69,11 +71,12 @@ static double rmsDb (const juce::AudioBuffer<float>& b, int start, int len)
 static double maxBeatJump (const RenderResult& r, const juce::AudioBuffer<float>& orig)
 {
     const int beat = (int) r.samplesPerBeat;
+    const auto mix = full (r);
     double worst = -100.0;
     for (auto s = r.zoneStart; s + beat <= r.zoneEnd; s += beat)
     {
         const double ref = juce::jmax (rmsDb (orig, (int) s, beat), rmsDb (orig, (int) r.zoneStart, (int) (r.zoneEnd - r.zoneStart)));
-        worst = juce::jmax (worst, rmsDb (r.mix, (int) s, beat) - ref);
+        worst = juce::jmax (worst, rmsDb (mix, (int) s, beat) - ref);
     }
     return worst;
 }
@@ -107,8 +110,9 @@ static void writeWav (const juce::File& dir, const juce::String& name, const juc
 
 int main (int argc, char** argv)
 {
-    const juce::File outDir = argc > 1 ? juce::File (argv[1]) : juce::File();
-    const double sr = 48000.0, bpm = 130.0;
+    const juce::File outDir = argc > 1 && juce::String (argv[1]) != "-" ? juce::File (argv[1]) : juce::File();
+    const double sr = argc > 2 ? juce::String (argv[2]).getDoubleValue() : 48000.0, bpm = 130.0;
+    std::cout << "sample rate " << sr << "\n";
     int failures = 0;
 
     auto clip = std::make_shared<ClipData>();
@@ -163,32 +167,34 @@ int main (int argc, char** argv)
             auto r = renderDrop (m, analysis, 1);
             const auto ms = juce::Time::getMillisecondCounterHiRes() - s;
             const juce::String name = mv.stackLabel() + " [" + modes[mode] + "]";
-            if (! checkBuffer (r->mix, name)) ++failures;
+            if (! checkBuffer (full (*r), name)) ++failures;
             const bool after = playsAfterDrop (mv.type);
             const double barSamples = 4.0 * m.samplesPerBeat (sr);
-            const double bars = r->mix.getNumSamples() / barSamples;
-            const bool lengthOk = after ? (r->mix.getNumSamples() >= clip->audio.getNumSamples() && std::abs (bars - std::round (bars)) < 1.0e-3)
-                                        : r->mix.getNumSamples() == clip->audio.getNumSamples();
+            const double bars = (int) r->length / barSamples;
+            const bool lengthOk = after ? ((int) r->length >= clip->audio.getNumSamples() && std::abs (bars - std::round (bars)) < 1.0e-3)
+                                        : (int) r->length == clip->audio.getNumSamples();
             if (! lengthOk) { std::cout << "FAIL length " << name << " (" << bars << " bars)\n"; ++failures; }
             // the zone (or, for Impact / Sub Boom, the audio after the drop) must actually change
             double diff = 0;
             const int d0 = after ? (int) r->zoneEnd + 64 : (int) r->zoneStart;
-            const int d1 = after ? r->mix.getNumSamples() : (int) r->zoneEnd;
+            const int d1 = after ? (int) r->length : (int) r->zoneEnd;
             for (int i = d0; i < d1; ++i)
-                diff += std::abs (r->mix.getSample (0, i) - (i < clip->audio.getNumSamples() ? clip->audio.getSample (0, i) : 0.0f));
+                diff += std::abs (r->mixAt (0, i) - (i < clip->audio.getNumSamples() ? clip->audio.getSample (0, i) : 0.0f));
             // and audio outside the zone must be untouched (apart from the drop micro-fade)
             double outside = 0;
             for (int i = 0; i < (int) r->zoneStart; ++i)
-                outside += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
+                outside += std::abs (r->mixAt (0, i) - clip->audio.getSample (0, i));
             const double jump = maxBeatJump (*r, clip->audio);
             std::cout << "  " << name.paddedRight (' ', 44) << juce::String (ms, 1).paddedLeft (' ', 7) << " ms   zone diff "
                       << juce::String (diff / juce::jmax (1, d1 - d0), 4) << "   max beat jump " << juce::String (jump, 1) << " dB\n";
             if (jump > 6.0) { std::cout << "FAIL: " << name << " is " << juce::String (jump, 1) << " dB louder than the track\n"; ++failures; }
-            const float tp = juce::Decibels::gainToDecibels (measureTruePeak (r->mix, (int) r->zoneStart, (int) (r->zoneEnd - r->zoneStart), sr));
-            if (tp > r->ceilingDb + 0.3f) { std::cout << "FAIL: " << name << " true peak " << tp << " dBTP over ceiling " << r->ceilingDb << "\n"; ++failures; }
+            const float tp = juce::Decibels::gainToDecibels (measureTruePeak (full (*r), (int) r->zoneStart, (int) (r->zoneEnd - r->zoneStart), sr));
+            // the ceiling is -1 dBTP, or the original's own peak where it was already hotter
+            const float origTp = juce::Decibels::gainToDecibels (measureTruePeak (clip->audio, (int) r->zoneStart, (int) (r->zoneEnd - r->zoneStart), sr));
+            if (tp > juce::jmax (r->ceilingDb, origTp) + 0.3f) { std::cout << "FAIL: " << name << " true peak " << tp << " dBTP over ceiling " << r->ceilingDb << "\n"; ++failures; }
             if (diff < 1.0e-3) { std::cout << "FAIL: " << name << " did nothing\n"; ++failures; }
             if (outside > 1.0e-6) { std::cout << "FAIL: " << name << " touched audio before the zone\n"; ++failures; }
-            writeWav (outDir, "move - " + name, r->mix, sr);
+            writeWav (outDir, "move - " + name, full (*r), sr);
         }
     }
 
@@ -200,8 +206,29 @@ int main (int argc, char** argv)
         const auto s = juce::Time::getMillisecondCounterHiRes();
         auto r = renderDrop (m, analysis, 1);
         std::cout << "preset " << p.name.paddedRight (' ', 20) << juce::String (juce::Time::getMillisecondCounterHiRes() - s, 1) << " ms\n";
-        if (! checkBuffer (r->mix, p.name)) ++failures;
-        writeWav (outDir, "preset - " + p.name, r->mix, sr);
+        if (! checkBuffer (full (*r), p.name)) ++failures;
+        writeWav (outDir, "preset - " + p.name, full (*r), sr);
+    }
+
+    // ---- stems (music + fx) add up exactly to the mix, limiter included
+    {
+        int bad = 0;
+        juce::Random srng (11);
+        for (int k = 0; k < 12; ++k)
+        {
+            DropModel m = model;
+            m.moves = rollMoves (srng, true);
+            m.moves.push_back (defaultMove (MoveType::Impact));
+            auto r = renderDrop (m, analysis, 1);
+            float worst = 0.0f;
+            for (int ch = 0; ch < 2; ++ch)
+                for (juce::int64 p = 0; p < r->length; p += 7)
+                    worst = juce::jmax (worst, std::abs (r->sampleAt (RenderResult::Layer::music, ch, p)
+                                                         + r->sampleAt (RenderResult::Layer::fx, ch, p) - r->mixAt (ch, p)));
+            if (worst > 1.0e-5f) { ++bad; std::cout << "  stems off by " << worst << " in render " << k << "\n"; }
+        }
+        std::cout << "stems null against the mix: " << (12 - bad) << "/12 renders\n";
+        if (bad > 0) { std::cout << "FAIL: stems don't add up to the mix\n"; ++failures; }
     }
 
     // ---- rolls
@@ -213,7 +240,7 @@ int main (int argc, char** argv)
         juce::String desc;
         for (auto& mv : m.moves) desc << mv.stackLabel() << " | ";
         auto r = renderDrop (m, analysis, 1);
-        if (! checkBuffer (r->mix, "roll " + desc)) ++failures;
+        if (! checkBuffer (full (*r), "roll " + desc)) ++failures;
         if (maxBeatJump (*r, clip->audio) > 6.0)
         {
             std::cout << "FAIL: roll " << desc << " jumps " << juce::String (maxBeatJump (*r, clip->audio), 1) << " dB\n";
@@ -222,7 +249,7 @@ int main (int argc, char** argv)
         if (i < 5)
         {
             std::cout << "roll " << i << ": " << desc << "\n";
-            writeWav (outDir, "roll " + juce::String (i), r->mix, sr);
+            writeWav (outDir, "roll " + juce::String (i), full (*r), sr);
         }
     }
 
@@ -240,7 +267,7 @@ int main (int argc, char** argv)
         {
             double d = 0.0;
             for (int i = (int) (b0 * spb); i < (int) (b1 * spb); ++i)
-                d += std::abs (r->mix.getSample (0, i) - clip->audio.getSample (0, i));
+                d += std::abs (r->mixAt (0, i) - clip->audio.getSample (0, i));
             return d / juce::jmax (1.0, (b1 - b0) * spb);
         };
         const double before = diffIn (16.0, 19.95), inside = diffIn (20.5, 23.5), after = diffIn (24.05, 27.5);
@@ -286,17 +313,17 @@ int main (int argc, char** argv)
         p.mode = 1; p.semitones = 12;
         m.moves = { p };
         auto r = renderDrop (m, nullptr, 1);
-        writeWav (outDir, "pitch-tone-plus12", r->mix, sr);
-        const int a0 = r->mix.getNumSamples() / 3, len = (int) sr;   // a second from the middle
+        writeWav (outDir, "pitch-tone-plus12", full (*r), sr);
+        const int a0 = (int) r->length / 3, len = (int) sr;   // a second from the middle
         auto goertzel = [&] (double f)
         {
             const double w = juce::MathConstants<double>::twoPi * f / sr, cw = 2.0 * std::cos (w);
             double s1 = 0, s2 = 0;
-            for (int i = 0; i < len; ++i) { const double s0 = r->mix.getSample (0, a0 + i) + cw * s1 - s2; s2 = s1; s1 = s0; }
+            for (int i = 0; i < len; ++i) { const double s0 = r->mixAt (0, a0 + i) + cw * s1 - s2; s2 = s1; s1 = s0; }
             return s1 * s1 + s2 * s2 - cw * s1 * s2;
         };
         double total = 0;
-        for (int i = 0; i < len; ++i) total += (double) r->mix.getSample (0, a0 + i) * r->mix.getSample (0, a0 + i);
+        for (int i = 0; i < len; ++i) total += (double) r->mixAt (0, a0 + i) * r->mixAt (0, a0 + i);
         // energy in the 870-890 Hz band (1 Hz bins over a 1 s window)
         double at880 = 0.0;
         for (int f = 870; f <= 890; ++f) at880 += goertzel ((double) f) * 2.0 / len;

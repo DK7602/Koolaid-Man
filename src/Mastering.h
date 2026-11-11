@@ -13,6 +13,12 @@ float measureTruePeak (const juce::AudioBuffer<float>&, int start, int numSample
     starts 1.5 ms ahead of each peak and recovers smoothly. Returns the max reduction in dB. */
 float truePeakLimit (juce::AudioBuffer<float>&, int start, int numSamples, double sampleRate, float ceilingGain);
 
+/** The limiter's gain curve for a section (empty = nothing to do). Apply the same curve to
+    several buffers (e.g. stems) so they still add up to the limited mix. */
+std::vector<float> truePeakGain (const juce::AudioBuffer<float>&, int start, int numSamples, double sampleRate, float ceilingGain,
+                                 const juce::AudioBuffer<float>* reference = nullptr, int referenceStart = 0);
+float applyGain (juce::AudioBuffer<float>&, int start, const std::vector<float>& gain);   // returns max reduction (dB)
+
 /** Quantises to 16-bit with TPDF dither and first-order noise shaping (in place). */
 void ditherTo16Bit (juce::AudioBuffer<float>&, juce::uint32 seed = 0x4b4d);
 

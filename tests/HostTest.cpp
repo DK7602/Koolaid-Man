@@ -151,7 +151,7 @@ public:
         p.modelChanged (false);
         waitForRender (p);
         auto result = p.getResult();
-        check (result != nullptr && result->mix.getNumSamples() > 0, "render finished");
+        check (result != nullptr && result->length > 0, "render finished");
         if (result == nullptr) return;
         check (std::abs (p.getModel().zoneEnd - 32.0) < 1.0e-6 && std::abs (p.getModel().zoneStart - 16.0) < 1.0e-6,
                "default zone = last 4 bars (5.1.1 to 9.1.1)");
@@ -174,10 +174,10 @@ public:
                 for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (buf.getWritePointer (ch), 0.123f, block);
                 p.processBlock (buf, midi);
                 const auto pos = (juce::int64) std::floor (ppq * spb);
-                if (pos + block < result->mix.getNumSamples())
+                if (pos + block < result->length)
                 {
                     for (int i = 0; i < block; i += 37)
-                        insideOk &= std::abs (buf.getSample (0, i) - result->mix.getSample (0, (int) (pos + i))) < 1.0e-5f;
+                        insideOk &= std::abs (buf.getSample (0, i) - result->mixAt (0, pos + i)) < 1.0e-5f;
                 }
                 else if (ppq > 32.5)
                 {
@@ -259,6 +259,66 @@ public:
             check (km::formatBarPosition (m.zoneEnd, m) == "7.1.1", "drop defaults to the end of the capture: " + km::formatBarPosition (m.zoneEnd, m));
         }
 
+        // ---- capture in cycle mode: the transport loops back -> capture ends at the jump
+        {
+            p.setSyncPreview (false);
+            p.armCapture (true);
+            const int block = 512;
+            juce::AudioBuffer<float> buf (2, block);
+            double ppq = 6.5;
+            auto playTo = [&] (double endPpq)
+            {
+                while (ppq < endPpq)
+                {
+                    ph.set (ppq, true);
+                    for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (buf.getWritePointer (ch), 0.25f, block);
+                    p.processBlock (buf, midi);
+                    ppq += block / spb;
+                }
+            };
+            playTo (8.0 + 8.0 + 1.0);   // capture starts at bar 3 (ppq 8); play 2 bars and a beat
+            ppq = 8.0;                  // cycle jumps back to bar 3
+            playTo (8.0 + 4.0);
+            ph.set (ppq, false);
+            p.processBlock (buf, midi);
+            pump (400);
+            const double beats = p.getModel().clipLengthBeats();
+            check (! p.isCaptureArmed() && std::abs (beats - 8.0) < 0.01,
+                   "cycle jump ends the capture (kept 2 whole bars, got " + juce::String (beats, 3) + " beats)");
+            waitForRender (p);
+        }
+
+        // ---- sync preview fades in at the clip's start (no click)
+        {
+            p.setSyncPreview (true);
+            p.getSettings().previewReplaces = true;
+            p.modelChanged (false);
+            waitForRender (p);
+            auto r = p.getResult();
+            const double clipPpq = (p.getModel().clipStartBar - 1) * 4.0;
+            const int block = 256;
+            juce::AudioBuffer<float> buf (2, block);
+            float maxStep = 0.0f, prev = 0.7f;
+            double ppq = clipPpq - 2.0 * block / spb;
+            for (int k = 0; k < 6; ++k)
+            {
+                ph.set (ppq, true);
+                for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (buf.getWritePointer (ch), 0.7f, block);
+                p.processBlock (buf, midi);
+                for (int i = 0; i < block; ++i)
+                {
+                    maxStep = juce::jmax (maxStep, std::abs (buf.getSample (0, i) - prev));
+                    prev = buf.getSample (0, i);
+                }
+                ppq += block / spb;
+            }
+            ph.set (ppq, false);
+            p.processBlock (buf, midi);
+            // the input is a constant 0.7 and the clip starts elsewhere: without a fade that's a jump
+            check (maxStep < 0.12f, "track -> drop switch is crossfaded (largest step " + juce::String (maxStep, 3) + ")");
+            juce::ignoreUnused (r);
+        }
+
         // ---- odd block sizes, no NaNs
         {
             p.setSyncPreview (true);
@@ -283,8 +343,8 @@ public:
         // ---- state round trip
         {
             p.applyPreset (km::factoryPresets()[3]);
-            p.getModel().zoneStart = 4.0;
-            p.getModel().zoneEnd = 12.0;
+            p.getModel().zoneStart = 2.0;
+            p.getModel().zoneEnd = 6.0;
             p.getSettings().exportFormat = km::ExportFormat::Wav32f;
             p.modelChanged (false);
             juce::MemoryBlock mb;
@@ -299,7 +359,7 @@ public:
             for (size_t i = 0; movesSame && i < a.moves.size(); ++i)
                 movesSame = a.moves[i] == b.moves[i];
             check (movesSame, "moves stack restored");
-            check (b.zoneStart == 4.0 && b.zoneEnd == 12.0 && b.clipStartBar == a.clipStartBar, "zone and clip position restored");
+            check (b.zoneStart == 2.0 && b.zoneEnd == 6.0 && b.clipStartBar == a.clipStartBar, "zone and clip position restored");
             check (q.getSettings().exportFormat == km::ExportFormat::Wav32f && q.getSettings().presetName == p.getSettings().presetName,
                    "settings restored");
             bool audioSame = b.music != nullptr && a.music != nullptr && b.music->audio.getNumSamples() == a.music->audio.getNumSamples();
@@ -339,7 +399,7 @@ public:
             waitForRender (p);
             auto r = p.getResult();
             const double clipBars = m.clipLengthBeats() / bpb;
-            const double outBars = r->mix.getNumSamples() / (r->samplesPerBeat * bpb);
+            const double outBars = r->length / (r->samplesPerBeat * bpb);
             check (outBars > clipBars + 0.9 && std::abs (outBars - std::round (outBars)) < 1.0e-3,
                    "Impact adds a whole-bar tail after the drop (" + juce::String (clipBars, 2) + " -> " + juce::String (outBars, 2) + " bars)");
             juce::String err;
@@ -348,7 +408,7 @@ public:
             juce::AudioFormatManager fm;
             fm.registerBasicFormats();
             std::unique_ptr<juce::AudioFormatReader> rd (fm.createReaderFor (f));
-            check (rd != nullptr && std::abs ((double) rd->lengthInSamples - r->mix.getNumSamples()) < 2.0, "export includes the tail");
+            check (rd != nullptr && std::abs ((double) rd->lengthInSamples - r->length) < 2.0, "export includes the tail");
             rd.reset();
             f.deleteFile();
         }
@@ -458,6 +518,43 @@ public:
             img = ed->snapshot (0.5f);
             ed->showTab (0);
             check (img.isValid(), "TIMELINE view renders");
+        }
+
+        // ---- a full 3-minute song: load, render, save state (timings are informational)
+        {
+            auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("koolaid-long-test.wav");
+            {
+                juce::AudioBuffer<float> song (2, (int) (sr * 180.0));
+                juce::Random rng (5);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < song.getNumSamples(); ++i) song.setSample (ch, i, (rng.nextFloat() - 0.5f) * 0.4f);
+                tmp.deleteFile();
+                std::unique_ptr<juce::OutputStream> os = tmp.createOutputStream();
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions{}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (24));
+                w->writeFromAudioSampleBuffer (song, 0, song.getNumSamples());
+            }
+            KoolaidProcessor q;
+            q.setRateAndBufferSizeDetails (sr, 512);
+            q.prepareToPlay (sr, 512);
+            juce::String err;
+            auto t0 = juce::Time::getMillisecondCounterHiRes();
+            check (q.loadAudioFile (tmp, 0, err), "3-minute song loads");
+            waitForRender (q);
+            const auto tLoad = juce::Time::getMillisecondCounterHiRes() - t0;
+            juce::MemoryBlock mb;
+            t0 = juce::Time::getMillisecondCounterHiRes();
+            q.getStateInformation (mb);
+            const auto tSave1 = juce::Time::getMillisecondCounterHiRes() - t0;
+            mb.reset();
+            t0 = juce::Time::getMillisecondCounterHiRes();
+            q.getStateInformation (mb);
+            const auto tSave2 = juce::Time::getMillisecondCounterHiRes() - t0;
+            std::cout << "  info  3-min song: load+analyse+render " << juce::String (tLoad, 0) << " ms, project save "
+                      << juce::String (tSave1, 0) << " ms (again: " << juce::String (tSave2, 0) << " ms), state "
+                      << (int) (mb.getSize() / (1024 * 1024)) << " MB" << std::endl;
+            check (tSave2 < 250.0, "saving the project again is quick (" + juce::String (tSave2, 0) + " ms)");
+            tmp.deleteFile();
         }
 
         // ---- editor lifecycle on the real processor
