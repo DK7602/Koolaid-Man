@@ -9,6 +9,7 @@ jobs:
   windows:
     name: Windows (VST3 + Standalone)
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - name: Configure
@@ -50,6 +51,7 @@ jobs:
   macos:
     name: macOS (VST3 + AU + Standalone, universal)
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - name: Configure
@@ -81,12 +83,16 @@ jobs:
   linux-tests:
     name: Linux build + tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+          # retry and time out instead of hanging when an Ubuntu mirror stalls
+          APT="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
             libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb ninja-build
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DKOOLAID_BUILD_TESTS=ON
