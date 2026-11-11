@@ -45,6 +45,13 @@ public:
                 proc->getModel().tension.curve = km::curveEaseIn;
                 proc->modelChanged (true);
             }
+            if (args.contains ("locked") && proc->getModel().moves.size() > 3)
+            {
+                proc->getModel().moves[0].locked = true;
+                proc->getModel().moves[3].locked = true;
+                proc->getModel().moves[3].tensionLink = true;
+                proc->modelChanged (true);
+            }
             if (args.contains ("timeline") && proc->getModel().moves.size() > 2)
             {
                 auto& st = proc->getModel().moves[2];            // time the stutter to the 2nd bar of the build

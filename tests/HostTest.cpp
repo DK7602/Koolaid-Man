@@ -436,6 +436,47 @@ public:
             check (m.moves.size() == before + 2, "redo replays both steps");
         }
 
+        // ---- ROLL keeps locked moves and remembers its style
+        {
+            auto& m = p.getModel();
+            m.moves.clear();
+            auto f = km::defaultMove (km::MoveType::Filter);
+            f.knob = 0.123f;
+            f.locked = true;
+            m.moves.push_back (f);
+            p.modelChanged (true);
+            p.getSettings().rollStyle = 2;   // Drill
+            bool kept = true, single = true;
+            for (int i = 0; i < 12; ++i)
+            {
+                p.roll();
+                int filters = 0;
+                bool found = false;
+                for (auto& mv : m.moves)
+                    if (mv.type == km::MoveType::Filter)
+                    {
+                        ++filters;
+                        found |= mv.locked && std::abs (mv.knob - 0.123f) < 1.0e-6f;
+                    }
+                kept &= found;
+                single &= filters == 1;
+            }
+            check (kept, "ROLL keeps a locked move exactly as it was");
+            check (single, "ROLL doesn't add a second move of a locked type");
+            check (p.getSettings().presetName.startsWith ("Drill Roll"), "roll is named after its style: " + p.getSettings().presetName);
+
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            KoolaidProcessor q;
+            q.setStateInformation (mb.getData(), (int) mb.getSize());
+            bool lockSaved = false;
+            for (auto& mv : q.getModel().moves) lockSaved |= mv.locked;
+            check (q.getSettings().rollStyle == 2 && lockSaved, "ROLL style and locks saved with the project");
+            m.moves.clear();
+            p.getSettings().rollStyle = 0;
+            p.modelChanged (true);
+        }
+
         // ---- A/B compare
         {
             auto& m = p.getModel();

@@ -146,6 +146,21 @@ void MoveStackView::paint (juce::Graphics& g)
         };
         if (m.customRegion) badge ("TIMED", 52.0f, col::cyan.withAlpha (0.9f), juce::Colour (0xff0b2a33));
         if (m.tensionLink)  badge ("TENSION", 62.0f, col::yellow.withAlpha (0.92f), juce::Colour (0xff3a2a00));
+        if (m.locked)
+        {
+            // padlock: ROLL keeps this move
+            juce::Rectangle<float> tag (tagRight - 26.0f, r.getY() + 5.0f, 26.0f, r.getHeight() - 10.0f);
+            g.setColour (col::hotPink.withAlpha (0.92f));
+            g.fillRoundedRectangle (tag, tag.getHeight() * 0.5f);
+            const auto c = tag.getCentre();
+            juce::Path shackle;
+            shackle.addCentredArc (c.x, c.y - 1.5f, 3.6f, 3.8f, 0.0f, -juce::MathConstants<float>::halfPi,
+                                   juce::MathConstants<float>::halfPi, true);
+            g.setColour (juce::Colour (0xff2a0820));
+            g.strokePath (shackle, juce::PathStrokeType (1.7f));
+            g.fillRoundedRectangle (c.x - 5.0f, c.y - 1.0f, 10.0f, 7.0f, 1.5f);
+            tagRight -= 30.0f;
+        }
         juce::Path tri;
         const float ax = r.getRight() - 18.0f, ay = r.getCentreY();
         tri.addTriangle (ax - 6.0f, ay - 3.0f, ax + 6.0f, ay - 3.0f, ax, ay + 4.0f);
@@ -269,6 +284,7 @@ void MoveStackView::showRowMenu (int index)
     menu.addItem (5, m.enabled ? "Bypass" : "Enable");
     menu.addItem (7, "Reset Timing (Auto)", m.customRegion);
     menu.addItem (8, "Link to Tension", true, m.tensionLink);
+    menu.addItem (9, "Lock (Keep on ROLL)", true, m.locked);
     {
         juce::PopupMenu curves;
         const auto& names = km::curveNames();
@@ -316,6 +332,7 @@ void MoveStackView::showRowMenu (int index)
         else if (result == 6) mv.erase (mv.begin() + idx);
         else if (result == 7) m.customRegion = false;
         else if (result == 8) m.tensionLink = ! m.tensionLink;
+        else if (result == 9) m.locked = ! m.locked;
         if (onStackEdited) onStackEdited();
         refresh();
     });

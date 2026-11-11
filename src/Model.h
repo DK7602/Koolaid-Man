@@ -73,6 +73,7 @@ struct Move
 
     // Linked to the Tension macro: fades in along the tension curve and follows the Tension knob
     bool tensionLink = false;
+    bool locked = false;          // ROLL keeps locked moves
 
     // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
     int curve = 0;

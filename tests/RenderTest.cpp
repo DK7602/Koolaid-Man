@@ -2,6 +2,8 @@
 // renders every move/mode, every factory preset and a batch of Rolls.
 // Usage: KoolaidTests [outputDir|-] [sampleRate]   (writes WAVs when an output dir is given)
 
+#include <set>
+#include <map>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Model.h"
 #include "DropRenderer.h"
@@ -243,7 +245,78 @@ int main (int argc, char** argv)
         auto r = renderDrop (m, analysis, 1);
         std::cout << "preset " << p.name.paddedRight (' ', 20) << juce::String (juce::Time::getMillisecondCounterHiRes() - s, 1) << " ms\n";
         if (! checkBuffer (full (*r), p.name)) ++failures;
+        if (maxBeatJump (*r, clip->audio) > 6.0)
+        {
+            std::cout << "FAIL: preset " << p.name << " jumps " << juce::String (maxBeatJump (*r, clip->audio), 1) << " dB\n";
+            ++failures;
+        }
+        if (! presetGenres().contains (p.genre)) { std::cout << "FAIL: preset " << p.name << " has unknown genre " << p.genre << "\n"; ++failures; }
         writeWav (outDir, "preset - " + p.name, full (*r), sr);
+    }
+    {
+        int perGenre[16] = {};
+        juce::StringArray names;
+        for (auto& p : factoryPresets())
+        {
+            ++perGenre[juce::jmax (0, presetGenres().indexOf (p.genre))];
+            if (names.contains (p.name)) { std::cout << "FAIL: duplicate preset name " << p.name << "\n"; ++failures; }
+            names.add (p.name);
+        }
+        juce::String counts;
+        for (int g = 0; g < presetGenres().size(); ++g)
+        {
+            counts << presetGenres()[g] << " " << perGenre[g] << "  ";
+            if (perGenre[g] < 5) { std::cout << "FAIL: genre " << presetGenres()[g] << " has only " << perGenre[g] << " presets\n"; ++failures; }
+        }
+        std::cout << "presets by genre: " << counts << "\n";
+    }
+
+    // ---- ROLL styles: every style makes valid, distinct-feeling stacks
+    {
+        juce::Random srng (21);
+        for (int style = 1; style < rollStyleNames().size(); ++style)
+        {
+            std::map<int, int> typeCount;
+            int rolls = 0;
+            for (int k = 0; k < 10; ++k)
+            {
+                DropModel m = model;
+                m.moves = rollMoves (srng, true, style);
+                ++rolls;
+                std::set<int> seen;
+                for (auto& mv : m.moves)
+                {
+                    if (! seen.insert ((int) mv.type).second)
+                    { std::cout << "FAIL: " << rollStyleNames()[style] << " roll has two " << typeName (mv.type) << " moves\n"; ++failures; }
+                    ++typeCount[(int) mv.type];
+                }
+                if (m.moves.size() < 2) { std::cout << "FAIL: " << rollStyleNames()[style] << " roll is nearly empty\n"; ++failures; }
+                auto r = renderDrop (m, analysis, 1);
+                if (! checkBuffer (full (*r), rollStyleNames()[style] + " roll")) ++failures;
+                const double jump = maxBeatJump (*r, clip->audio);
+                if (jump > 6.0) { std::cout << "FAIL: " << rollStyleNames()[style] << " roll jumps " << juce::String (jump, 1) << " dB\n"; ++failures; }
+            }
+            for (int k = 0; k < 300; ++k)   // more rolls (not rendered) for the stats
+            {
+                for (auto& mv : rollMoves (srng, true, style)) ++typeCount[(int) mv.type];
+                ++rolls;
+            }
+            juce::String top;
+            std::vector<std::pair<int, int>> sorted (typeCount.begin(), typeCount.end());
+            std::sort (sorted.begin(), sorted.end(), [] (auto& x, auto& y) { return x.second > y.second; });
+            for (size_t i = 0; i < juce::jmin<size_t> (5, sorted.size()); ++i)
+                top << typeName ((MoveType) sorted[i].first) << " " << juce::roundToInt (100.0 * sorted[i].second / rolls) << "%  ";
+            std::cout << "roll style " << rollStyleNames()[style].paddedRight (' ', 8) << top << "\n";
+            // each style's signature move shows up often
+            const std::pair<int, MoveType> signature[] = { { 1, MoveType::Bass808 }, { 2, MoveType::Hats }, { 3, MoveType::Filter }, { 4, MoveType::Riser },
+                                                           { 5, MoveType::Pump }, { 6, MoveType::Boom }, { 7, MoveType::Atmos }, { 8, MoveType::Atmos } };
+            for (auto& [st, t] : signature)
+                if (st == style && typeCount[(int) t] < rolls * 3 / 10)
+                {
+                    std::cout << "FAIL: " << rollStyleNames()[style] << " rolls rarely use " << typeName (t) << "\n";
+                    ++failures;
+                }
+        }
     }
 
     // ---- stems (music + fx) add up exactly to the mix, limiter included

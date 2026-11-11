@@ -112,6 +112,7 @@ private:
 
     juce::String presetDisplayName() const;
     std::vector<km::Preset> allPresets() const;
+    void showRollStyleMenu (juce::Component* target);
     void stepPreset (int delta);
     void showBrowseMenu (juce::Component* target);
     void saveAs();

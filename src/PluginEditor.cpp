@@ -444,9 +444,11 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     };
 
     //------------------------------------------------------------------ roll / preview / export
-    rollBtn.setTooltip ("ROLL: an instant idea - a fresh stack of moves");
+    rollBtn.setTooltip ("ROLL: an instant idea - a fresh stack of moves. Right-click to pick a style. Locked moves stay put.");
     rollBtn.onClick = [this] { doRoll(); };
     instantBtn.onClick = [this] { doRoll(); };
+    rollBtn.onRightClick = [this] { showRollStyleMenu (&rollBtn); };
+    instantBtn.onRightClick = [this] { showRollStyleMenu (&instantBtn); };
     previewBtn.setTooltip ("PREVIEW (IN SYNC): when lit, the drop plays in time with your session whenever the DAW is playing");
     previewBtn.onClick = [this] { toggleSync(); };
     exportBtn.setTooltip ("Drag this into your DAW's project window - it lands on the grid at the bar shown. Click to just save the file.");
@@ -723,13 +725,29 @@ void KoolaidEditor::stepPreset (int delta)
 void KoolaidEditor::showBrowseMenu (juce::Component* target)
 {
     const auto list = allPresets();
+    const auto& current = proc.getSettings().presetName;
     juce::PopupMenu menu;
     menu.addSectionHeader ("FACTORY");
+    for (const auto& genre : km::presetGenres())
+    {
+        juce::PopupMenu sub;
+        bool holdsCurrent = false;
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            if (! list[i].factory || list[i].genre != genre) continue;
+            const bool on = list[i].name == current;
+            holdsCurrent |= on;
+            sub.addItem ((int) i + 1, list[i].name, true, on);
+        }
+        if (sub.getNumItems() > 0)
+            menu.addSubMenu (genre, sub, true, nullptr, holdsCurrent);
+    }
+    bool anyUser = false;
     for (size_t i = 0; i < list.size(); ++i)
     {
-        if (i > 0 && list[i].factory != list[i - 1].factory)
-            menu.addSectionHeader ("YOUR PRESETS");
-        menu.addItem ((int) i + 1, list[i].name, true, list[i].name == proc.getSettings().presetName);
+        if (list[i].factory) continue;
+        if (! anyUser) { menu.addSectionHeader ("YOUR PRESETS"); anyUser = true; }
+        menu.addItem ((int) i + 1, list[i].name, true, list[i].name == current);
     }
     menu.addSeparator();
     menu.addItem (10000, "Open Presets Folder");
@@ -919,6 +937,10 @@ void KoolaidEditor::showGearMenu()
     themeMenu.addItem (70, "Dark", true, Skin::get().getTheme() == Theme::dark);
     themeMenu.addItem (71, "Light", true, Skin::get().getTheme() == Theme::light);
     menu.addSubMenu ("Theme (or click Koolaid Man)", themeMenu);
+    juce::PopupMenu rollMenu;
+    for (int i = 0; i < km::rollStyleNames().size(); ++i)
+        rollMenu.addItem (80 + i, i == 0 ? juce::String ("Any Style") : km::rollStyleNames()[i], true, s.rollStyle == i);
+    menu.addSubMenu ("ROLL Style (or right-click ROLL)", rollMenu);
     menu.addSeparator();
     menu.addItem (40, "Open Export Folder");
     menu.addItem (41, "Open Presets Folder");
@@ -938,6 +960,7 @@ void KoolaidEditor::showGearMenu()
         else if (r == 70 || r == 71)
             Skin::get().setTheme (r == 71 ? Theme::light : Theme::dark);
         else if (r >= 10 && r <= 12) { st.snap = r - 10; }
+        else if (r >= 80 && r < 80 + km::rollStyleNames().size()) { st.rollStyle = r - 80; }
         else if (r == 20 || r == 21) { st.previewReplaces = r == 20; zoneEdited(); }
         else if (r >= 30 && r < 36)  { setSize (juce::roundToInt (designW * sizes[r - 30]), juce::roundToInt (designH * sizes[r - 30])); }
         else if (r == 40) km::exportFolder().startAsProcess();
@@ -1030,6 +1053,24 @@ void KoolaidEditor::doRoll()
     flashCountdown = 5;
     juce::Timer::callAfterDelay (160, [safe = juce::Component::SafePointer<Btn> (&step2)] { if (safe) safe->setFlash (false); });
     waveform.showMessage ("New idea: " + proc.getSettings().presetName + " - Save As to keep it", 2500);
+}
+
+void KoolaidEditor::showRollStyleMenu (juce::Component* target)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("ROLL STYLE");
+    const auto& names = km::rollStyleNames();
+    for (int i = 0; i < names.size(); ++i)
+        menu.addItem (i + 1, i == 0 ? juce::String ("Any Style") : names[i], true, proc.getSettings().rollStyle == i);
+    menu.addSeparator();
+    menu.addItem (100, "Roll Now");
+    menu.showMenuAsync (menuOptionsFor (target), [this] (int r)
+    {
+        if (r <= 0) return;
+        if (r == 100) { doRoll(); return; }
+        proc.getSettings().rollStyle = r - 1;
+        doRoll();
+    });
 }
 
 void KoolaidEditor::afterRestore()

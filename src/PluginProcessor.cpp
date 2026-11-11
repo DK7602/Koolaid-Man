@@ -635,8 +635,24 @@ void KoolaidProcessor::roll()
 {
     const auto a = getAnalysis();
     const bool drums = a != nullptr && (a->snare.found || a->hats.found);
-    model.moves = rollMoves (rng, drums);
-    settings.presetName = "Roll #" + juce::String (1000 + rng.nextInt (9000));
+    // locked moves survive the roll; the roll fills in around them
+    std::vector<Move> kept;
+    for (const auto& m : model.moves)
+        if (m.locked) kept.push_back (m);
+
+    auto fresh = rollMoves (rng, drums, settings.rollStyle);
+    for (auto& m : fresh)
+    {
+        const bool taken = std::any_of (kept.begin(), kept.end(), [&] (const Move& k) { return k.type == m.type; });
+        if (! taken) kept.push_back (m);
+    }
+    std::stable_sort (kept.begin(), kept.end(), [] (const Move& x, const Move& y)
+                      { return canonicalOrder (x.type) < canonicalOrder (y.type); });
+    model.moves = std::move (kept);
+
+    const auto style = rollStyleNames()[juce::jlimit (0, rollStyleNames().size() - 1, settings.rollStyle)];
+    settings.presetName = (settings.rollStyle > 0 ? style + " Roll #" : juce::String ("Roll #"))
+                        + juce::String (1000 + rng.nextInt (9000));
     modelChanged (true);
 }
 
@@ -797,6 +813,7 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
     t.setProperty ("uiScale", settings.uiScale, nullptr);
     t.setProperty ("activeTab", settings.activeTab, nullptr);
     t.setProperty ("snap", settings.snap, nullptr);
+    t.setProperty ("rollStyle", settings.rollStyle, nullptr);
     t.setProperty ("previewLevel", outputParam->get(), nullptr);
     t.setProperty ("syncPreview", syncParam->get(), nullptr);
     t.setProperty ("buildAmount", buildParam->get(), nullptr);
@@ -872,6 +889,7 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     settings.uiScale = juce::jlimit (0.4f, 1.5f, (float) t.getProperty ("uiScale", settings.uiScale));
     settings.activeTab = juce::jlimit (0, 3, (int) t.getProperty ("activeTab", 0));
     settings.snap = juce::jlimit (0, 2, (int) t.getProperty ("snap", 1));
+    settings.rollStyle = juce::jlimit (0, rollStyleNames().size() - 1, (int) t.getProperty ("rollStyle", 0));
     *outputParam = (float) t.getProperty ("previewLevel", 0.0f);
     *syncParam = (bool) t.getProperty ("syncPreview", true);
     *buildParam = (float) t.getProperty ("buildAmount", 100.0f);

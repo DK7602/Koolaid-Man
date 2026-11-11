@@ -72,7 +72,7 @@ Everything outside the zone stays exactly as it was. Some moves (like **Reverse 
 
 - **Pink checkbox**: turns a move on or off without deleting it.
 - **Drag a row** (grab it by the dots on the left) to change the order.
-- **Drop-down arrow** on the right of a row (or right-click): pick the move's variation, move it up or down, duplicate it, randomize it, bypass it or delete it.
+- **Drop-down arrow** on the right of a row (or right-click): pick the move's variation, move it up or down, duplicate it, randomize it, bypass it, lock it so ROLL keeps it, or delete it.
 - **Click a row** to select it. The effect cards then edit that move.
 - **+ ADD MOVE** adds any move to the bottom of the stack. **DUPLICATE** and **DELETE** act on the selected row.
 
@@ -186,7 +186,29 @@ Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and find
 
 **ROLL** (or **INSTANT IDEA**, or the **2 BUILD THE DROP** banner) builds a brand new stack of moves: a couple of moves that shape the build, sometimes an 808, and a move into the drop. Keep rolling until something hits, then tweak it.
 
-- The **arrow buttons** either side of the preset name step through presets. **Click the preset name** or **BROWSE** to pick one from the list.
+## Roll styles
+
+**Right-click ROLL** (or INSTANT IDEA) to pick a style: **Any**, **Trap**, **Drill**, **Hip-Hop**, **EDM**, **House**, **Bass**, **Pop** or **Chill**. Picking a style rolls straight away, and every ROLL after that uses it until you change it. You can also set it under **ROLL Style** in the gear menu. Each style leans on the moves that genre is known for:
+
+- **Trap**: 808 slides, hat rolls, snare rolls and a silent gap before the drop.
+- **Drill**: triplet hats, sliding 808s, chops and gaps.
+- **Hip-Hop**: filter dips, tape stops, reverses and gentle chops.
+- **EDM**: snare builds, risers, pitch going up and big impacts.
+- **House**: filter sweeps, sidechain pumping and crash swells.
+- **Bass**: speeding-up stutters, pitch dives, gaps and sub booms.
+- **Pop**: shimmer and cloud reverbs, chopped lifts and crash swells.
+- **Chill**: muffled filters, reverb washes and slow tape stops.
+
+Rolls are named after their style (for example "Trap Roll #4821"). The style is saved with your project.
+
+## Locking moves
+
+Found a move you love but want to keep rolling the rest? Open the row's drop-down and pick **Lock (Keep on ROLL)**. A pink **padlock** appears on the row. ROLL keeps locked moves exactly as they are (settings, curve, timing and all) and only rolls new moves around them. It never adds a second move of a type you've locked. Pick the menu item again to unlock it.
+
+## Presets
+
+- **Click the preset name** or **BROWSE** to open the list. Factory presets are grouped by genre: **Classic** (the originals) plus six each for **Trap**, **Drill**, **Hip-Hop**, **EDM**, **House**, **Bass**, **Pop** and **Chill**. Your own presets are listed underneath under **YOUR PRESETS**.
+- The **arrow buttons** either side of the preset name step through every preset in order.
 - **SAVE** overwrites your current preset (or works like Save As for factory presets and rolls). **SAVE AS** saves a new one.
 - A **\*** after the name means you've changed something since loading it.
 - Presets store the moves stack only, not the audio. Your own presets live in **Documents/Koolaid Man/Presets**.
@@ -249,6 +271,7 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - **In-Sync Preview**: replace the track's audio, or layer on top of it.
 - **Window Size**: 50% to 125%. You can also drag the window's corner.
 - **Theme**: Dark or Light. Clicking the Koolaid Man mascot does the same. Remembered for all your projects.
+- **ROLL Style**: which genre ROLL builds for (same as right-clicking ROLL).
 - **Open Export Folder / Open Presets Folder**.
 - **Clear AUDIO 1 / AUDIO 2**.
 

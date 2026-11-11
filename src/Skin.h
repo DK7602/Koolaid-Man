@@ -121,6 +121,7 @@ public:
 
     std::function<void()> onClick;
     std::function<void (const juce::MouseEvent&)> onDragOut;   // drag gesture leaving the button
+    std::function<void()> onRightClick;                        // right-click / ctrl-click (optional)
 
     void setLit (bool);
     bool isLit() const { return lit; }
@@ -140,7 +141,7 @@ public:
 
 protected:
     float radius;
-    bool lit = true, flash = false, dragging = false, showHover = true;
+    bool lit = true, flash = false, dragging = false, showHover = true, popupClick = false;
     juce::Rectangle<int> litRegion;   // empty = whole button
     juce::Rectangle<int> artSource;   // empty = the art under the button
     juce::Colour glow = juce::Colours::transparentBlack;

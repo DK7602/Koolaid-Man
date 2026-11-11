@@ -42,6 +42,7 @@ struct SessionSettings
     float uiScale = 0.72f;
     int activeTab = 0;             // 0 music, 1 drums, 2 fx layer, 3 timeline
     int snap = 1;                  // 0 bar, 1 beat, 2 sixteenth
+    int rollStyle = 0;             // ROLL style: index into km::rollStyleNames() (0 = any)
 };
 
 class KoolaidProcessor : public juce::AudioProcessor,

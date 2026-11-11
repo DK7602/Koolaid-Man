@@ -355,15 +355,18 @@ void SkinButton::paint (juce::Graphics& g)
     }
 }
 
-void SkinButton::mouseDown (const juce::MouseEvent&)
+void SkinButton::mouseDown (const juce::MouseEvent& e)
 {
     dragging = false;
+    popupClick = onRightClick != nullptr && e.mods.isPopupMenu();
+    if (popupClick)
+        onRightClick();
     repaint();
 }
 
 void SkinButton::mouseDrag (const juce::MouseEvent& e)
 {
-    if (onDragOut && ! dragging && e.getDistanceFromDragStart() > 8)
+    if (onDragOut && ! dragging && ! popupClick && e.getDistanceFromDragStart() > 8)
     {
         dragging = true;
         onDragOut (e);
@@ -373,9 +376,10 @@ void SkinButton::mouseDrag (const juce::MouseEvent& e)
 void SkinButton::mouseUp (const juce::MouseEvent& e)
 {
     repaint();
-    if (! dragging && e.mouseWasClicked() && getLocalBounds().contains (e.getPosition()) && onClick)
+    if (! dragging && ! popupClick && e.mouseWasClicked() && getLocalBounds().contains (e.getPosition()) && onClick)
         onClick();
     dragging = false;
+    popupClick = false;
 }
 
 //==============================================================================
