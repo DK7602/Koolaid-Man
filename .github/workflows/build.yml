@@ -15,6 +15,14 @@ jobs:
         run: cmake -S . -B build -A x64   # newest installed Visual Studio
       - name: Build
         run: cmake --build build --config Release --target KoolaidMan_VST3 KoolaidMan_Standalone --parallel
+      - name: Validate VST3 with pluginval (industry-standard plug-in tests)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath pluginval
+          $p = Start-Process -FilePath .\pluginval\pluginval.exe -ArgumentList '--strictness-level','8','--validate-in-process','--timeout-ms','900000','--output-dir','pluginval-logs','--validate','"build\KoolaidMan_artefacts\Release\VST3\Koolaid Man.vst3"' -NoNewWindow -Wait -PassThru
+          Get-ChildItem pluginval-logs -Recurse -Filter *.txt | ForEach-Object { Get-Content $_.FullName -Tail 60 }
+          exit $p.ExitCode
       - name: Package
         shell: pwsh
         run: |
@@ -48,6 +56,14 @@ jobs:
         run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
       - name: Build
         run: cmake --build build --config Release --target KoolaidMan_VST3 KoolaidMan_AU KoolaidMan_Standalone -- -quiet
+      - name: Validate the Audio Unit with auval (Apple's validator)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/KoolaidMan_artefacts/Release/AU/Koolaid Man.component" ~/Library/Audio/Plug-Ins/Components/
+          codesign --force --deep -s - ~/Library/Audio/Plug-Ins/Components/"Koolaid Man.component"
+          killall -9 AudioComponentRegistrar || true
+          auval -a | grep -i "Kool" || true
+          auval -strict -v aufx KmBd Kool
       - name: Sign (ad-hoc) and package
         run: |
           mkdir -p dist
