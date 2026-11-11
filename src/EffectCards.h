@@ -14,7 +14,7 @@ public:
     ~EffectCards();
 
     void refresh();
-    void setPage (int);          // 0 = main moves, 1 = build & drop
+    void setPage (int);          // 0 = main moves, 1 = build & drop, 2 = fx moves
     int getPage() const { return page; }
     void followSelection();      // shows the page of the selected stack move
     std::function<void()> onPageChanged;

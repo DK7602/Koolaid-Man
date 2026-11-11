@@ -537,6 +537,35 @@ int main (int argc, char** argv)
         if (std::abs (f - 55.0) > 2.0) { std::cout << "FAIL: sub boom not tuned to the key\n"; ++failures; }
     }
 
+    // ---- FX moves on white noise (for listening / analysis of the sweeps)
+    {
+        auto noise = std::make_shared<ClipData>();
+        noise->sampleRate = sr;
+        noise->audio.setSize (2, (int) (sr * 60.0 / bpm * 16));
+        juce::Random nr (5);
+        for (int i = 0; i < noise->audio.getNumSamples(); ++i)
+        {
+            const float v = 0.2f * (nr.nextFloat() * 2.0f - 1.0f);
+            noise->audio.setSample (0, i, v);
+            noise->audio.setSample (1, i, v);
+        }
+        writeWav (outDir, "noise-dry", noise->audio, sr);
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            DropModel m = model;
+            m.music = noise;
+            m.zoneStart = 0.0;
+            m.zoneEnd = 16.0;
+            Move ph = defaultMove (MoveType::Phaser);
+            ph.mode = mode;
+            ph.knob = 1.0f;
+            m.moves = { ph };
+            auto r = renderDrop (m, nullptr, 1);
+            if (! checkBuffer (full (*r), "phaser on noise")) ++failures;
+            writeWav (outDir, "noise-phaser-" + juce::String (mode), full (*r), sr);
+        }
+    }
+
     // ---- studio-grade pitch: a pure 440 Hz tone shifted +12 st must come out as a clean 880 Hz
     {
         auto tone = std::make_shared<ClipData>();

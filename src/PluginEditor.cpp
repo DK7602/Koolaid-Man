@@ -388,11 +388,13 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
         menu.addSectionHeader ("ADD MOVE");
         const char* desc[] = { "Reverse", "Chops", "Stutter", "Pitch", "Tape Stop", "Filter", "Drum Moves (snare fill / gate / roll)",
                                "808 Slide", "Hat Roll", "Atmos Reverb",
-                               "Noise Riser", "Reverse Crash", "Sidechain Pump", "Drop Gap", "Impact (on the drop)", "Sub Boom (on the drop)" };
+                               "Noise Riser", "Reverse Crash", "Sidechain Pump", "Drop Gap", "Impact (on the drop)", "Sub Boom (on the drop)",
+                               "Delay Throw", "Bitcrush", "Phaser / Barber-Pole", "Stereo Width", "Vinyl Scratch / Rewind / Brake", "Pre-Verb (swell into the drop)" };
         static_assert (sizeof (desc) / sizeof (desc[0]) == km::numMoveTypes, "one name per move type");
         for (int t = 0; t < km::numMoveTypes; ++t)
         {
             if (t == (int) MoveType::Riser) menu.addSectionHeader ("BUILD & DROP");
+            if (t == (int) MoveType::DelayThrow) menu.addSectionHeader ("FX MOVES");
             menu.addItem (t + 1, desc[t]);
         }
         menu.showMenuAsync (menuOptionsFor (&addMoveBtn), [this] (int r)

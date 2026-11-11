@@ -53,6 +53,12 @@ const char* typeName (MoveType t)
         case MoveType::Gap:       return "Drop Gap";
         case MoveType::Impact:    return "Impact";
         case MoveType::Boom:      return "Sub Boom";
+        case MoveType::DelayThrow: return "Delay Throw";
+        case MoveType::Bitcrush:  return "Bitcrush";
+        case MoveType::Phaser:    return "Phaser";
+        case MoveType::Width:     return "Width";
+        case MoveType::Scratch:   return "Vinyl";
+        case MoveType::PreVerb:   return "Pre-Verb";
         default: break;
     }
     return "";
@@ -78,6 +84,12 @@ const char* cardTitle (MoveType t)
         case MoveType::Gap:       return "DROP GAP";
         case MoveType::Impact:    return "IMPACT";
         case MoveType::Boom:      return "SUB BOOM";
+        case MoveType::DelayThrow: return "DELAY THROW";
+        case MoveType::Bitcrush:  return "BITCRUSH";
+        case MoveType::Phaser:    return "PHASER";
+        case MoveType::Width:     return "STEREO WIDTH";
+        case MoveType::Scratch:   return "VINYL SCRATCH";
+        case MoveType::PreVerb:   return "PRE-VERB";
         default: break;
     }
     return "";
@@ -103,6 +115,12 @@ juce::StringArray modeNames (MoveType t)
         case MoveType::Gap:       return { "Silence", "Low-pass", "High-pass" };
         case MoveType::Impact:    return { "Hit + Crash", "Hit Only", "Crash + Downlifter" };
         case MoveType::Boom:      return { "Deep", "Punchy", "Long Dive" };
+        case MoveType::DelayThrow: return { "Throw", "Ping-Pong Build", "Tape Echo" };
+        case MoveType::Bitcrush:  return { "Bit Ramp", "Downsample", "Full Crush" };
+        case MoveType::Phaser:    return { "Barber-Pole Rise", "Phaser Sweep", "Flanger" };
+        case MoveType::Width:     return { "Collapse To Mono", "Widen Out", "Mono Snap" };
+        case MoveType::Scratch:   return { "Baby Scratch", "Rewind", "Brake" };
+        case MoveType::PreVerb:   return { "Downbeat", "Drop Bar", "Snare" };
         default: break;
     }
     return {};
@@ -128,6 +146,12 @@ juce::String knobName (MoveType t, int which)
         case MoveType::Boom:      return "Level";
         case MoveType::Pump:
         case MoveType::Gap:       return "Depth";
+        case MoveType::DelayThrow: return "Feedback";
+        case MoveType::Bitcrush:  return "Crush";
+        case MoveType::Phaser:    return "Depth";
+        case MoveType::Width:     return "Amount";
+        case MoveType::Scratch:   return "Speed";
+        case MoveType::PreVerb:   return "Level";
         default: break;
     }
     return {};
@@ -176,6 +200,11 @@ bool moveHasRamp (const Move& m)
         case MoveType::Hats:      return true;
         case MoveType::DrumMoves: return m.mode != 1;
         case MoveType::Pump:      return m.mode == 2;
+        case MoveType::DelayThrow: return m.mode != 0;
+        case MoveType::Bitcrush:
+        case MoveType::Phaser:
+        case MoveType::PreVerb:   return true;
+        case MoveType::Width:     return m.mode != 2;
         default: break;
     }
     return false;
@@ -238,6 +267,17 @@ juce::String Move::stackLabel() const
         case MoveType::Gap:       return "Drop Gap (" + div + ", " + modeName + ")";
         case MoveType::Impact:    return "Impact (" + modeName + ")";
         case MoveType::Boom:      return "Sub Boom (" + modeName + ")";
+        case MoveType::DelayThrow:
+            return juce::String (mode == 0 ? "Delay Throw (" : (mode == 1 ? "Ping-Pong (" : "Tape Echo (")) + div + ")";
+        case MoveType::Bitcrush:
+            return juce::String (mode == 0 ? "Bitcrush (" : (mode == 1 ? "Downsample (" : "Full Crush (")) + div + ")";
+        case MoveType::Phaser:
+            return juce::String (mode == 0 ? "Barber-Pole (" : (mode == 1 ? "Phaser (" : "Flanger (")) + div + ")";
+        case MoveType::Width:
+            return juce::String (mode == 0 ? "Mono Collapse (" : (mode == 1 ? "Widen (" : "Mono Snap (")) + div + ")";
+        case MoveType::Scratch:
+            return juce::String (mode == 0 ? "Scratch (" : (mode == 1 ? "Rewind (" : "Vinyl Brake (")) + div + ")";
+        case MoveType::PreVerb:   return "Pre-Verb (" + div + ", " + modeName + ")";
         default: break;
     }
     return {};
@@ -265,6 +305,12 @@ Move defaultMove (MoveType t)
         case MoveType::Gap:       m.division = 4; m.knob = 1.0f; break;     // 1/4 (one beat)
         case MoveType::Impact:    m.division = 7; m.knob = 0.7f; break;     // 2-bar tail
         case MoveType::Boom:      m.division = 6; m.knob = 0.7f; break;     // 1 bar
+        case MoveType::DelayThrow: m.division = 4; m.knob = 0.65f; break;   // 1/4 echoes
+        case MoveType::Bitcrush:  m.division = 7; m.knob = 0.7f; break;     // 2 bars
+        case MoveType::Phaser:    m.division = 8; m.knob = 0.7f; break;     // 4 bars
+        case MoveType::Width:     m.division = 8; m.knob = 0.9f; break;     // 4 bars
+        case MoveType::Scratch:   m.division = 5; m.knob = 0.55f; break;    // 1/2
+        case MoveType::PreVerb:   m.division = 6; m.knob = 0.6f; break;     // 1 bar
         default: break;
     }
     return m;
@@ -281,18 +327,24 @@ int canonicalOrder (MoveType t)
         case MoveType::Stutter:   return 4;
         case MoveType::Pitch:     return 5;
         case MoveType::Filter:    return 6;
-        case MoveType::Riser:     return 7;
-        case MoveType::RevCrash:  return 8;
-        case MoveType::Atmos:     return 9;
-        case MoveType::Bass808:   return 10;
-        case MoveType::Reverse:   return 11;
-        case MoveType::TapeStop:  return 12;
-        case MoveType::Gap:       return 13;
-        case MoveType::Impact:    return 14;
-        case MoveType::Boom:      return 15;
+        case MoveType::Bitcrush:  return 7;
+        case MoveType::Phaser:    return 8;
+        case MoveType::Riser:     return 9;
+        case MoveType::RevCrash:  return 10;
+        case MoveType::Atmos:     return 11;
+        case MoveType::DelayThrow: return 12;
+        case MoveType::Bass808:   return 13;
+        case MoveType::Reverse:   return 14;
+        case MoveType::Scratch:   return 15;
+        case MoveType::TapeStop:  return 16;
+        case MoveType::Width:     return 17;
+        case MoveType::PreVerb:   return 18;
+        case MoveType::Gap:       return 19;
+        case MoveType::Impact:    return 20;
+        case MoveType::Boom:      return 21;
         default: break;
     }
-    return 16;
+    return 22;
 }
 
 juce::ValueTree Move::toTree() const

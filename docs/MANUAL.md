@@ -172,6 +172,50 @@ A deep sub drop on the downbeat. Types: **Deep**, **Punchy** and **Long Dive**.
 
 **Impact** and **Sub Boom** play *after* the drop. If your audio ends right at the drop, Koolaid Man adds a tail (rounded up to whole bars) so you still hear them, and the export includes it.
 
+# FX Moves (Page 3)
+
+Click **FX MOVES** in the title bar of the cards panel for the third page of cards. These are the mix moves engineers use to make a drop feel bigger: echo throws, crunch, motion, width and turntable tricks. Each card works like the other pages: the **power button** switches it on (adding it to the stack), **TYPE** picks the variation and the second box sets the length (or the echo time).
+
+## Delay Throw
+
+Tempo-synced echoes that bounce left and right. **Time** sets the echo time (1/8, 1/4 and so on), **Feedback** sets how long the echoes last. Types:
+
+- **Throw**: the classic. The first beat of the last bar goes into the delay, then the track drops out and only the echoes carry you into the drop.
+- **Ping-Pong Build**: more and more of the build is fed into ping-pong echoes as the drop gets closer.
+- **Tape Echo**: the same idea, but each repeat gets darker and a little saturated, with a bit of tape wobble.
+
+## Bitcrush
+
+Crushes the audio harder and harder into the drop. **Crush** sets how far it goes. Types: **Bit Ramp** (fewer and fewer bits, down to a gritty 2-bit fizz), **Downsample** (the sample rate drops until it sounds like an old sampler) and **Full Crush** (both, plus some drive).
+
+## Phaser
+
+- **Barber-Pole Rise**: a phaser whose notches glide **up forever**. As one leaves the top, a new one enters at the bottom, so the build sounds like it keeps rising without ever resetting. It speeds up as the drop gets closer.
+- **Phaser Sweep**: a classic six-stage phaser, sweeping faster and faster.
+- **Flanger**: a jet-plane flanger, sweeping faster and faster.
+
+**Depth** sets how strong it is.
+
+## Stereo Width
+
+- **Collapse To Mono**: squeezes the build down to mono, so when the drop hits at full width it feels huge. This is one of the most effective drop tricks there is.
+- **Widen Out**: makes the build wider and wider. Your bass stays in the middle, and the level is kept steady.
+- **Mono Snap**: switches to mono for the last stretch (set by Length).
+
+**Amount** sets how far it goes.
+
+## Vinyl Scratch
+
+Turntable moves on the end of the build. **Speed** changes each one:
+
+- **Baby Scratch**: quick forward-and-back scratches on the downbeat of that stretch, locked to the beat. Higher speed = faster scratches (1/8 up to 1/32).
+- **Rewind**: the DJ grabs the record and spins it backwards into the drop. Higher speed = a faster spin.
+- **Brake**: the turntable's power is cut and the record slows to a stop, with a little needle crackle. Higher speed = it stops sooner, leaving a silent beat before the drop.
+
+## Pre-Verb
+
+The **drop's own first hit**, played through a big reverb and then backwards, so it swells up and sucks right into the drop. Because it's made from your drop, it always fits the song. Types: **Downbeat** (the first beat of the drop), **Drop Bar** (the drop's whole first bar, a softer, bigger swell) and **Snare** (the snare found by Detection). **Level** sets how loud it gets, **Length** sets how long it swells. If your audio ends right at the drop, it uses the last downbeat of the build instead.
+
 # Detection
 
 Koolaid Man listens to your audio (or to AUDIO 2, if you loaded a stem) and finds the **snare**, the **808/kick** and the **hi-hats**. Their exact hits are used by Drum Moves, 808 Detect and Hat Detect.

@@ -67,6 +67,17 @@ public:
                 editor.showTab (3);
             if (args.contains ("page2"))
                 editor.showCardPage (1);
+            if (args.contains ("page3"))
+            {
+                // a few fx moves in the stack, so the page shows them switched on
+                auto& mv = proc->getModel().moves;
+                mv.push_back (km::defaultMove (km::MoveType::Phaser));
+                mv.push_back (km::defaultMove (km::MoveType::Width));
+                mv.push_back (km::defaultMove (km::MoveType::PreVerb));
+                proc->modelChanged (true);
+                editor.refreshForSnapshot();
+                editor.showCardPage (2);
+            }
             if (args.size() > 3 && args[3].startsWith ("manual"))
             {
                 editor.openManual();

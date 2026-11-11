@@ -73,6 +73,7 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     ctx.samplesPerBeat = spb;
     ctx.beatsPerBar = model.beatsPerBar();
     ctx.zoneStartInClip = res->zoneStart;
+    ctx.dropInClip = res->zoneEnd;
     ctx.clip = &clip;
     ctx.drums = analysis.get();
     {

@@ -1081,6 +1081,599 @@ namespace
             }
         }
     }
+
+    //==========================================================================
+    // FX moves (page 3)
+    //==========================================================================
+    /** Circular delay line with fractional reads (read before push: delay 1 = the last sample pushed). */
+    struct DelayLine
+    {
+        std::vector<float> d;
+        int w = 0;
+        void prepare (int maxDelay) { d.assign ((size_t) juce::jmax (8, maxDelay + 4), 0.0f); w = 0; }
+        void push (float x) { d[(size_t) w] = x; w = (w + 1) % (int) d.size(); }
+        float read (double delay) const
+        {
+            const int sz = (int) d.size();
+            double rp = (double) w - juce::jlimit (1.0, (double) sz - 2.0, delay);
+            if (rp < 0) rp += sz;
+            const int i0 = (int) rp;
+            const float f = (float) (rp - i0);
+            const float a = d[(size_t) (i0 % sz)], b = d[(size_t) ((i0 + 1) % sz)];
+            return a + (b - a) * f;
+        }
+    };
+
+    /** First-order allpass (phaser stage). */
+    struct Allpass1
+    {
+        float x1 = 0.0f, y1 = 0.0f;
+        float process (float x, float a) { const float y = a * x + x1 - a * y1; x1 = x; y1 = y; return y; }
+    };
+
+    /** Schroeder allpass (decorrelator). */
+    struct CombAllpass
+    {
+        std::vector<float> buf;
+        int pos = 0;
+        float g = 0.6f;
+        void prepare (int delay) { buf.assign ((size_t) juce::jmax (1, delay), 0.0f); pos = 0; }
+        float process (float x)
+        {
+            const float wd = buf[(size_t) pos];
+            const float w = x + g * wd;
+            buf[(size_t) pos] = w;
+            pos = (pos + 1) % (int) buf.size();
+            return wd - g * w;
+        }
+    };
+
+    /** Two allpass chains whose outputs stay 90 degrees apart from ~20 Hz to ~20 kHz
+        (a polyphase IIR Hilbert pair, after Olli Niemitalo). 'i' and 'q' have the same
+        magnitude as the input; q lags i by a quarter cycle at every frequency. */
+    struct HilbertPair
+    {
+        struct Stage
+        {
+            float c = 0.0f, x1 = 0.0f, x2 = 0.0f, y1 = 0.0f, y2 = 0.0f;
+            float process (float x) { const float y = c * (x + y2) - x2; x2 = x1; x1 = x; y2 = y1; y1 = y; return y; }
+        };
+        Stage a[4], b[4];
+        float qDelay = 0.0f;
+        HilbertPair()
+        {
+            const float ca[4] = { 0.6923878f, 0.9360654322959f, 0.9882295226860f, 0.9987488452737f };
+            const float cb[4] = { 0.4021921162426f, 0.8561710882420f, 0.9722909545651f, 0.9952884791278f };
+            for (int k = 0; k < 4; ++k) { a[k].c = ca[k] * ca[k]; b[k].c = cb[k] * cb[k]; }
+        }
+        void process (float x, float& i, float& q)
+        {
+            float va = x, vb = x;
+            for (auto& st : a) va = st.process (va);
+            for (auto& st : b) vb = st.process (vb);
+            i = vb;
+            q = qDelay;
+            qDelay = va;
+        }
+    };
+
+    int moveLength (const Move& m, const MoveContext& c, int n)
+    {
+        return juce::jmin (n, toSamples (regionLen (divisionToBeats (m.division, c.beatsPerBar), c), c));
+    }
+
+    void fadeOutEnd (Buffer& b, int start, int len, int fade)
+    {
+        fade = juce::jmin (fade, len);
+        if (fade > 0) b.applyGainRamp (start + len - fade, fade, 1.0f, 0.0f);
+    }
+
+    //--------------------------------------------------------------------------
+    /** Delay Throw: Throw sends one beat into tempo-synced ping-pong echoes and drops the
+        track out under them; Ping-Pong Build and Tape Echo feed more and more of the build
+        into the delay. The echoes go to the fx layer. Division = echo time, knob = feedback. */
+    void doDelay (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)
+    {
+        const int n = main.getNumSamples();
+        const double sr = c.sampleRate;
+        const bool throwMode = m.mode == 0, tape = m.mode == 2;
+        const int L = throwMode ? juce::jmin (n, toSamples (regionLen (c.beatsPerBar, c), c)) : n;
+        if (L < 256) return;
+        const int start = n - L;
+        double D = juce::jlimit (0.25, c.beatsPerBar, divisionToBeats (m.division, c.beatsPerBar)) * c.samplesPerBeat;
+        if (throwMode) D = juce::jmin (D, L * 0.5);
+        D = juce::jmax (32.0, D);
+        const float fb = 0.3f + 0.6f * m.knob;
+        const int throwLen = throwMode ? juce::jlimit (64, juce::jmax (64, L / 2), (int) juce::jmax (D, c.samplesPerBeat)) : 0;
+        const int throwFade = juce::jmin (throwLen / 4, (int) (0.008 * sr) + 1);
+
+        // what goes into the delay
+        Buffer send (2, L);
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto* sd = send.getWritePointer (ch);
+            auto* a = main.getReadPointer (juce::jmin (ch, main.getNumChannels() - 1), start);
+            auto* f = fx.getReadPointer (juce::jmin (ch, fx.getNumChannels() - 1), start);
+            for (int i = 0; i < L; ++i)
+            {
+                float g;
+                if (throwMode) g = i < throwLen - throwFade ? 1.0f : (i < throwLen ? (float) (throwLen - i) / throwFade : 0.0f);
+                else           g = (float) shapeCurve (m, (double) i / L, 1.5);
+                sd[i] = (a[i] + f[i]) * g;
+            }
+        }
+
+        DelayLine dl, dr;
+        dl.prepare ((int) (D * 1.01) + 8);
+        dr.prepare ((int) (D * 1.01) + 8);
+        const float lpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * (tape ? 2400.0f : 6500.0f) / (float) sr);
+        const float hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 170.0f / (float) sr);
+        float lp[2] {}, hp[2] {};
+        auto tone = [&] (float x, int k) { lp[k] += (x - lp[k]) * lpCoef; hp[k] += (lp[k] - hp[k]) * hpCoef; return lp[k] - hp[k]; };
+        Buffer echo (2, L);
+        for (int i = 0; i < L; ++i)
+        {
+            double d = D;
+            if (tape) d *= 1.0 + 0.003 * std::sin (twoPi * 0.7 * i / sr);   // a little wow
+            const float oL = dl.read (d), oR = dr.read (d);
+            const float fL = tone (oL, 0), fR = tone (oR, 1);
+            const float sL = send.getSample (0, i), sR = send.getSample (1, i);
+            if (tape)
+            {
+                // tape: each side repeats itself, darker and a little saturated every time
+                dl.push (sL + std::tanh (fL * fb * 1.5f) / 1.5f);
+                dr.push (sR + std::tanh (fR * fb * 1.5f) / 1.5f);
+            }
+            else
+            {
+                // ping-pong: the send enters on the left, then the echoes bounce across
+                dl.push (0.5f * (sL + sR) + fR * fb);
+                dr.push (fL * fb);
+            }
+            echo.setSample (0, i, oL);
+            echo.setSample (1, i, oR);
+        }
+
+        if (throwMode)
+        {
+            // the track drops out after the throw; the echoes carry it to the drop
+            for (Buffer* b : { &main, &fx })
+                for (int ch = 0; ch < b->getNumChannels(); ++ch)
+                {
+                    auto* d = b->getWritePointer (ch, start);
+                    for (int i = throwLen - throwFade; i < L; ++i)
+                        d[i] *= i < throwLen ? (float) (throwLen - i) / throwFade : 0.0f;
+                }
+            echo.applyGain (0.85f);
+        }
+        else
+        {
+            // keep the echoes under the track: matched over the end of the build
+            const float r = rmsOf (echo, L - L / 4, L / 4);
+            if (r > 1.0e-9f) echo.applyGain (juce::jmin (2.0f, c.refRms * 0.6f / r));
+            // the dry thins out a touch as the echoes take over
+            for (int ch = 0; ch < main.getNumChannels(); ++ch)
+            {
+                auto* d = main.getWritePointer (ch);
+                for (int i = 0; i < n; ++i) d[i] *= 1.0f - 0.2f * (float) shapeCurve (m, (double) i / n, 1.5);
+            }
+        }
+        fadeOutEnd (echo, 0, L, juce::jmin (L / 8, (int) (0.003 * sr) + 1));
+        for (int ch = 0; ch < fx.getNumChannels(); ++ch)
+            fx.addFrom (ch, start, echo, juce::jmin (ch, 1), 0, L);
+    }
+
+    //--------------------------------------------------------------------------
+    /** Bitcrush: bit depth (16 -> 3 bits) and/or sample rate (down to ~1.4 kHz) crushed
+        more and more into the drop. Knob = how far it goes. */
+    void doBitcrush (const Move& m, const MoveContext& c, Buffer& b)
+    {
+        const int n = b.getNumSamples();
+        const int L = moveLength (m, c, n);
+        if (L < 256) return;
+        const int start = n - L;
+        const float norm = juce::jmax (0.05f, c.refPeak);       // crush relative to the track's own level
+        const bool crushBits = m.mode != 1, crushRate = m.mode != 0, drive = m.mode == 2;
+        const double minRate = juce::jmin (1.0, 1400.0 / c.sampleRate);
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            auto* d = b.getWritePointer (ch, start);
+            double hold = 1.0;
+            float held = 0.0f;
+            for (int i = 0; i < L; ++i)
+            {
+                const float amt = m.knob * (float) shapeCurve (m, (double) i / L, 1.3);
+                float x = d[i] / norm;
+                if (drive)
+                {
+                    const float k = 1.0f + 2.0f * amt;
+                    x = std::tanh (x * k) / std::tanh (k);
+                }
+                if (crushRate)
+                {
+                    hold += std::pow (minRate, (double) amt);
+                    if (hold >= 1.0) { hold -= std::floor (hold); held = x; }
+                    x = held;
+                }
+                if (crushBits)
+                {
+                    const float q = std::pow (2.0f, 15.0f - 14.0f * std::pow (amt, 0.7f));   // 16 bits down to 2
+                    x = std::round (x * q) / q;
+                }
+                d[i] = x * norm;
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    /** Phaser: Barber-Pole Rise (notches that glide up forever - a Shepard
+        tone for the whole mix), Phaser Sweep, or Flanger. The sweep speeds up into the drop. */
+    void doPhaser (const Move& m, const MoveContext& c, Buffer& b)
+    {
+        const int n = b.getNumSamples();
+        const int L = moveLength (m, c, n);
+        if (L < 256) return;
+        const int start = n - L;
+        const double sr = c.sampleRate, spb = c.samplesPerBeat;
+        const float depth = 0.35f + 0.65f * m.knob;
+        const double pi = juce::MathConstants<double>::pi;
+        auto coef = [sr, pi] (double hz)
+        {
+            const double t = std::tan (pi * juce::jlimit (20.0, sr * 0.45, hz) / sr);
+            return (float) ((t - 1.0) / (t + 1.0));
+        };
+
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            auto* d = b.getWritePointer (ch, start);
+            if (m.mode == 2)
+            {
+                // flanger: a short swept delay with feedback
+                DelayLine dl;
+                dl.prepare ((int) (0.012 * sr) + 8);
+                double phase = ch == 0 ? 0.0 : 0.25;
+                for (int i = 0; i < L; ++i)
+                {
+                    const float ramp = (float) shapeCurve (m, (double) i / L, 1.2);
+                    phase += 0.125 * std::pow (16.0, (double) ramp) / spb;
+                    const double lfo = 0.5 - 0.5 * std::cos (twoPi * phase);
+                    const float y = dl.read ((0.0006 + 0.0065 * lfo) * sr);
+                    const float x = d[i];
+                    dl.push (x + y * 0.62f * m.knob);
+                    d[i] = x + (0.5f * (x + y) - x) * depth * ramp;
+                }
+                continue;
+            }
+
+            if (m.mode == 0)
+            {
+                // Barber-pole: a static 8-stage phaser whose wet path is phase-rotated (via a
+                // Hilbert pair) by an ever-increasing angle. Every notch glides up, and as one
+                // leaves the top a new one enters at the bottom - an endless rise with no reset.
+                // (Esqueda, Valimaki & Parker, "Barberpole phasing and flanging illusions", DAFx-15.)
+                Allpass1 ap[8];
+                float apc[8];
+                for (int k = 0; k < 8; ++k) apc[k] = coef (80.0 * std::pow (100.0, k / 7.0));
+                HilbertPair dryPair, wetPair;
+                double psi = ch == 0 ? 0.0 : 0.5 * pi;
+                const int xfade = juce::jmin (L / 4, (int) (0.01 * sr) + 1);
+                for (int i = 0; i < L; ++i)
+                {
+                    const float ramp = (float) shapeCurve (m, (double) i / L, 1.2);
+                    psi += twoPi * 0.25 * std::pow (6.0, (double) ramp) / spb;     // 1/4 -> 1.5 notch steps per beat
+                    const float x = d[i];
+                    float v = x;
+                    for (int k = 0; k < 8; ++k) v = ap[k].process (v, apc[k]);
+                    float di, dq, wi, wq;
+                    dryPair.process (x, di, dq);
+                    wetPair.process (v, wi, wq);
+                    const float rotated = wi * (float) std::cos (psi) - wq * (float) std::sin (psi);
+                    const float wet = 0.5f * (di + rotated);
+                    float y = di + (wet - di) * depth * ramp;   // mixed in the pair's own phase, so no extra combing
+                    if (i < xfade) y = x + (y - x) * (float) i / xfade;
+                    d[i] = y;
+                }
+                continue;
+            }
+
+            // Phaser Sweep: six stages swept by an LFO that speeds up into the drop
+            Allpass1 ap[6];
+            float last = 0.0f, a = 0.0f;
+            double phase = ch == 0 ? 0.0 : 0.25;
+            const float feedback = 0.25f + 0.35f * m.knob;
+            for (int i = 0; i < L; ++i)
+            {
+                const float ramp = (float) shapeCurve (m, (double) i / L, 1.2);
+                phase += 0.25 * std::pow (8.0, (double) ramp) / spb;            // 1/4 -> 2 sweeps per beat
+                if ((i & 15) == 0)
+                    a = coef (180.0 * std::pow (5500.0 / 180.0, 0.5 - 0.5 * std::cos (twoPi * phase)));
+                const float x = d[i];
+                float y = x + last * feedback;
+                for (auto& st : ap) y = st.process (y, a);
+                last = y;
+                d[i] = x + (0.5f * (x + y) - x) * depth * ramp;
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    /** Stereo width: Collapse To Mono (the drop then hits full width), Widen Out, or Mono Snap. */
+    void doWidth (const Move& m, const MoveContext& c, Buffer& b)
+    {
+        if (b.getNumChannels() < 2) return;
+        const int n = b.getNumSamples();
+        const int L = moveLength (m, c, n);
+        if (L < 256) return;
+        const int start = n - L;
+        const double sr = c.sampleRate;
+        auto* l = b.getWritePointer (0, start);
+        auto* r = b.getWritePointer (1, start);
+        const int snapFade = (int) (0.01 * sr) + 1;
+        CombAllpass dec[3];
+        const double decMs[3] = { 4.7, 7.1, 11.3 };
+        for (int k = 0; k < 3; ++k) dec[k].prepare ((int) (decMs[k] * 0.001 * sr));
+        const float hpCoef = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (float) sr);
+        const float eCoef = 1.0f - std::exp (-1.0f / (float) (0.03 * sr));
+        float hpState = 0.0f, ein = 1.0e-9f, eout = 1.0e-9f;
+        for (int i = 0; i < L; ++i)
+        {
+            const float amt = m.mode == 2 ? m.knob * juce::jmin (1.0f, (float) i / snapFade)
+                                          : m.knob * (float) shapeCurve (m, (double) i / L, 1.0);
+            const float mid = 0.5f * (l[i] + r[i]);
+            float side = 0.5f * (l[i] - r[i]);
+            if (m.mode == 1)
+            {
+                // widen: more side, plus a decorrelated copy of the mid above the bass
+                hpState += (mid - hpState) * hpCoef;
+                float dcr = mid - hpState;
+                for (auto& a : dec) dcr = a.process (dcr);
+                side = side * (1.0f + 1.2f * amt) + dcr * 0.55f * amt;
+            }
+            else
+            {
+                side *= 1.0f - amt;
+            }
+            float nl = mid + side, nr = mid - side;
+            if (m.mode == 1)
+            {
+                // widening adds energy: keep the level where it was
+                ein += (l[i] * l[i] + r[i] * r[i] - ein) * eCoef;
+                eout += (nl * nl + nr * nr - eout) * eCoef;
+                const float g = juce::jlimit (0.6f, 1.0f, std::sqrt (ein / juce::jmax (1.0e-12f, eout)));
+                nl *= g;
+                nr *= g;
+            }
+            l[i] = nl;
+            r[i] = nr;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    /** Vinyl: Baby Scratch (forward-back strokes on the beat grid), Rewind (the record is
+        yanked backwards) or Brake (the turntable's power is cut). Knob = speed. */
+    void doVinyl (const Move& m, const MoveContext& c, Buffer& b, Buffer* crackle, bool canReadClip)
+    {
+        const int n = b.getNumSamples();
+        const int L = moveLength (m, c, n);
+        if (L < 256) return;
+        const int start = n - L;
+        const double sr = c.sampleRate, spb = c.samplesPerBeat, pi = juce::MathConstants<double>::pi;
+
+        // the platter's motion: where the needle is (in zone samples) and how fast it moves
+        std::vector<double> pos ((size_t) L);
+        std::vector<float> speed ((size_t) L);
+        juce::Random rng ((juce::int64) m.seed * 7 + 3);
+        double maxSpeed = 1.0;
+        if (m.mode == 0)
+        {
+            const double stroke = spb * 0.5 * std::pow (0.25, (double) m.knob);   // 1/8 note down to 1/32
+            double amp = 0.55 * stroke;
+            int lastStroke = 0;
+            for (int i = 0; i < L; ++i)
+            {
+                const double sp = i / stroke;
+                const int k = (int) sp;
+                if (k != lastStroke) { lastStroke = k; amp = 0.55 * stroke * (0.8 + 0.4 * rng.nextDouble()); }
+                const double ph = sp - k, s = std::sin (pi * ph);
+                pos[(size_t) i] = start + amp * s * s;
+                speed[(size_t) i] = (float) (amp * pi * std::sin (twoPi * ph) / stroke);
+            }
+            maxSpeed = 0.66 * pi;
+        }
+        else if (m.mode == 1)
+        {
+            const double top = 3.0 + 9.0 * m.knob, grab = 0.12;
+            double p = start;
+            for (int i = 0; i < L; ++i)
+            {
+                const double t = (double) i / L;
+                double v;
+                if (t < grab) { const double u = t / grab; v = 1.0 - (1.0 + top) * u * u * (3.0 - 2.0 * u); }
+                else          v = -top * (1.0 - 0.35 * (t - grab) / (1.0 - grab));
+                pos[(size_t) i] = p;
+                speed[(size_t) i] = (float) v;
+                p += v;
+            }
+            maxSpeed = top;
+        }
+        else
+        {
+            const double stopAt = 1.0 - 0.6 * m.knob;    // faster brake = stops earlier
+            const double wow = rng.nextDouble();
+            double p = start;
+            for (int i = 0; i < L; ++i)
+            {
+                double v = juce::jmax (0.0, 1.0 - ((double) i / L) / stopAt);
+                v *= 1.0 + 0.004 * std::sin (twoPi * (wow + 0.55 * i / sr));
+                pos[(size_t) i] = p;
+                speed[(size_t) i] = (float) v;
+                p += v;
+            }
+        }
+
+        // the audio to play from: the zone, plus the untouched clip before it if we rewind past it
+        double minPos = 0.0;
+        for (auto p : pos) minPos = juce::jmin (minPos, p);
+        const int P = canReadClip && c.clip != nullptr
+                        ? (int) std::min (c.zoneStartInClip, std::max ((juce::int64) 0, (juce::int64) std::ceil (-minPos) + 8)) : 0;
+        Buffer ext (b.getNumChannels(), P + n);
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            if (P > 0) ext.copyFrom (ch, 0, *c.clip, juce::jmin (ch, c.clip->getNumChannels() - 1), (int) (c.zoneStartInClip - P), P);
+            ext.copyFrom (ch, P, b, ch, 0, n);
+        }
+        // fast playback would alias: a band-limited copy to blend to as the platter speeds up
+        Buffer extLo;
+        if (maxSpeed > 1.3)
+        {
+            extLo.makeCopyOf (ext);
+            const double cut = 0.45 * sr / maxSpeed;
+            for (int ch = 0; ch < extLo.getNumChannels(); ++ch)
+            {
+                Svf f[3];
+                for (auto& x : f) x.set (sr, cut, 1.0);
+                auto* d = extLo.getWritePointer (ch);
+                for (int i = 0; i < extLo.getNumSamples(); ++i)
+                {
+                    float v = d[i], lo, bp, hi;
+                    for (auto& x : f) { x.process (v, lo, bp, hi); v = lo; }
+                    d[i] = v;
+                }
+            }
+        }
+
+        const Buffer src (b);
+        const int extN = ext.getNumSamples();
+        const int tail = juce::jmin (L / 8, (int) (0.003 * sr) + 1);
+        for (int ch = 0; ch < b.getNumChannels(); ++ch)
+        {
+            auto* d = b.getWritePointer (ch, start);
+            const float* s = ext.getReadPointer (ch);
+            const float* sl = extLo.getNumSamples() > 0 ? extLo.getReadPointer (ch) : nullptr;
+            Svf tone;
+            for (int i = 0; i < L; ++i)
+            {
+                const double p = pos[(size_t) i] + P;
+                const float av = std::abs (speed[(size_t) i]);
+                float v = readInterp (s, extN, p);
+                if (sl != nullptr && av > 1.0f)
+                {
+                    const float w = juce::jlimit (0.0f, 1.0f, (av - 1.0f) / (float) (maxSpeed - 1.0));
+                    v += (readInterp (sl, extN, p) - v) * w;
+                }
+                // a slow-moving record sounds dull and quiet
+                if ((i & 15) == 0)
+                    tone.set (sr, 150.0 + 18000.0 * std::pow (juce::jmin (1.0, (double) av), 1.5), 1.4);
+                float lo, bp, hi;
+                tone.process (v, lo, bp, hi);
+                float g = std::pow (juce::jmin (1.0f, av * (m.mode == 0 ? 1.3f : 1.0f)), m.mode == 0 ? 0.5f : 0.25f);
+                g *= m.mode == 0 ? 0.8f : (m.mode == 1 ? 0.85f : 1.0f);
+                if (i >= L - tail) g *= (float) (L - i) / tail;
+                d[i] = lo * g;
+            }
+        }
+        crossfadeInto (b, src, start, juce::jmin (L / 8, (int) (0.004 * sr) + 1));
+
+        // the brake's needle crackle (into the fx layer)
+        if (crackle != nullptr && m.mode == 2)
+        {
+            Buffer cr (2, L);
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                juce::Random cr1 ((juce::int64) m.seed * 17 + ch * 29 + 11);
+                auto* d = cr.getWritePointer (ch);
+                float hissLp = 0.0f;
+                int clickLeft = 0;
+                float clickAmp = 0.0f;
+                for (int i = 0; i < L; ++i)
+                {
+                    const float v = speed[(size_t) i];
+                    hissLp += ((cr1.nextFloat() * 2.0f - 1.0f) - hissLp) * 0.25f;
+                    float x = hissLp * 0.05f;
+                    if (clickLeft == 0 && cr1.nextFloat() < (float) (10.0 / sr))
+                    {
+                        clickLeft = 6 + cr1.nextInt (24);
+                        clickAmp = (0.4f + 0.6f * cr1.nextFloat()) * (cr1.nextBool() ? 1.0f : -1.0f);
+                    }
+                    if (clickLeft > 0) { x += clickAmp * (float) clickLeft / 30.0f; --clickLeft; }
+                    const float fadeIn = juce::jmin (1.0f, (float) i / (float) (0.02 * sr));
+                    d[i] = x * std::sqrt (juce::jmax (0.0f, v)) * fadeIn;
+                }
+            }
+            cr.applyGain (c.refRms * 0.5f);
+            fadeOutEnd (cr, 0, L, tail);
+            for (int ch = 0; ch < crackle->getNumChannels(); ++ch)
+                crackle->addFrom (ch, start, cr, juce::jmin (ch, 1), 0, L);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    /** Pre-Verb: the drop's own downbeat (or first bar, or the snare) through a big reverb,
+        played backwards so the tail swells up into the drop. Goes to the fx layer. */
+    void doPreVerb (const Move& m, const MoveContext& c, Buffer& fx)
+    {
+        const int n = fx.getNumSamples();
+        const int L = moveLength (m, c, n);
+        if (L < 512) return;
+        const double sr = c.sampleRate;
+
+        Buffer hit;
+        if (m.mode == 2)
+        {
+            Buffer fallback;
+            hit.makeCopyOf (snareHit (c, fallback));
+        }
+        else
+        {
+            const int H = toSamples (m.mode == 1 ? c.beatsPerBar : 1.0, c);
+            hit.setSize (2, juce::jmax (64, H));
+            hit.clear();
+            if (c.clip != nullptr && c.clip->getNumSamples() > 0)
+            {
+                const auto clipN = (juce::int64) c.clip->getNumSamples();
+                juce::int64 from = c.dropInClip;
+                if (from < 0 || from + 256 > clipN)   // no audio after the drop: use the build's last downbeat
+                    from = std::max ((juce::int64) 0, c.zoneStartInClip + n - (juce::int64) toSamples (c.beatsPerBar, c));
+                const int len = (int) std::min ((juce::int64) hit.getNumSamples(), clipN - from);
+                for (int ch = 0; ch < 2; ++ch)
+                    if (len > 0) hit.copyFrom (ch, 0, *c.clip, juce::jmin (ch, c.clip->getNumChannels() - 1), (int) from, len);
+            }
+            fadeOutEnd (hit, 0, hit.getNumSamples(), juce::jmin (hit.getNumSamples() / 4, (int) (0.01 * sr) + 1));
+        }
+        if (hit.getNumSamples() == 0) return;
+
+        FdnReverb rv;
+        auto st = atmosSettings (m.mode == 1 ? 1 : 0, 0.5f);
+        st.rt60 = juce::jlimit (1.5, 9.0, 1.1 * L / sr);
+        st.predelayMs = 0.0;
+        rv.prepare (sr, st);
+        Buffer wet (2, L);
+        const int hn = hit.getNumSamples(), hch = hit.getNumChannels();
+        // a single hit: its reverb from the first moment (reversed, it "sucks" into the hit);
+        // a whole bar: only the tail after the bar, so it swells instead of smearing the bar
+        const int skip = m.mode == 1 ? hn : 0;
+        for (int i = 0; i < L + skip; ++i)
+        {
+            const float inL = i < hn ? hit.getSample (0, i) : 0.0f;
+            const float inR = i < hn ? hit.getSample (juce::jmin (1, hch - 1), i) : 0.0f;
+            float l, r;
+            rv.process (inL, inR, l, r);
+            if (i >= skip)
+            {
+                wet.setSample (0, i - skip, l);
+                wet.setSample (1, i - skip, r);
+            }
+        }
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto* d = wet.getWritePointer (ch);
+            std::reverse (d, d + L);                                   // the tail now swells up to the drop
+            for (int i = 0; i < L; ++i) d[i] *= (float) shapeCurve (m, (double) i / L, 0.0);
+        }
+        wet.applyGainRamp (0, juce::jmin (L / 10, (int) (0.05 * sr)), 0.0f, 1.0f);
+        fadeOutEnd (wet, 0, L, (int) (0.002 * sr) + 1);
+        addMatched (fx, wet, n - L, L - L / 6, L / 6, c.refRms * (0.4f + 0.9f * m.knob));
+    }
 }
 
 //==============================================================================
@@ -1203,7 +1796,13 @@ std::pair<double, double> moveRegion (const Move& m, double Z, double bpb)
         case MoveType::Stutter:   return last (stutterSpanBeats (m.knob, bpb));
         case MoveType::TapeStop:
         case MoveType::Riser:
-        case MoveType::Gap:       return last (L);
+        case MoveType::Gap:
+        case MoveType::Bitcrush:
+        case MoveType::Phaser:
+        case MoveType::Width:
+        case MoveType::Scratch:
+        case MoveType::PreVerb:   return last (L);
+        case MoveType::DelayThrow: return m.mode == 0 ? last (bpb) : last (Z);
         case MoveType::RevCrash:  return last (m.mode == 1 ? juce::jmin (L, 2.0) : L);
         case MoveType::DrumMoves: return m.mode == 0 ? last (4.0 * bpb) : (m.mode == 2 ? last (2.0 * bpb) : last (Z));
         case MoveType::Bass808:   return last (m.mode == 0 ? bpb * 0.5 : bpb);
@@ -1238,6 +1837,15 @@ void applyMove (const Move& m, const MoveContext& c, Buffer& main, Buffer& fx)
         case MoveType::RevCrash:  doRevCrash (m, c, fx); break;
         case MoveType::Pump:      doPump (m, c, main); break;
         case MoveType::Gap:       doGap (m, c, main); break;
+        case MoveType::DelayThrow: doDelay (m, c, main, fx); break;
+        case MoveType::Bitcrush:  doBitcrush (m, c, main); if (fxLive) doBitcrush (m, c, fx); break;
+        case MoveType::Phaser:    doPhaser (m, c, main);   if (fxLive) doPhaser (m, c, fx);   break;
+        case MoveType::Width:     doWidth (m, c, main);    if (fxLive) doWidth (m, c, fx);    break;
+        case MoveType::Scratch:
+            if (fxLive) doVinyl (m, c, fx, nullptr, false);
+            doVinyl (m, c, main, &fx, true);   // the brake's crackle goes to the fx layer
+            break;
+        case MoveType::PreVerb:   doPreVerb (m, c, fx); break;
         case MoveType::Impact:
         case MoveType::Boom:      break;   // rendered after the drop (renderAfterDrop)
         default: break;

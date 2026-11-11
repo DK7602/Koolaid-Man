@@ -11,6 +11,7 @@ struct MoveContext
     double samplesPerBeat = 22153.8;
     double beatsPerBar = 4.0;
     juce::int64 zoneStartInClip = 0;                  // where the zone starts in the source clip
+    juce::int64 dropInClip = -1;                      // where the drop lands in the source clip (-1 = unknown)
     const juce::AudioBuffer<float>* clip = nullptr;   // the untouched music clip
     const DrumAnalysis* drums = nullptr;              // onsets relative to clip start
 

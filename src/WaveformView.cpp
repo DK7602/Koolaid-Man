@@ -632,6 +632,12 @@ juce::Colour WaveformView::moveColour (km::MoveType t)
         case T::Gap:       return juce::Colour (0xff6c6cff);
         case T::Impact:    return juce::Colour (0xffff6a2b);
         case T::Boom:      return juce::Colour (0xffc05cff);
+        case T::DelayThrow: return juce::Colour (0xff2fe0ff);
+        case T::Bitcrush:  return juce::Colour (0xffb8f03a);
+        case T::Phaser:    return juce::Colour (0xffff5fa8);
+        case T::Width:     return juce::Colour (0xff5aa0ff);
+        case T::Scratch:   return juce::Colour (0xffff7a52);
+        case T::PreVerb:   return juce::Colour (0xfff5d94a);
         default: break;
     }
     return col::lavender;

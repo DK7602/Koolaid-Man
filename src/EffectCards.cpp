@@ -219,6 +219,45 @@ namespace
                 p.setUsingNonZeroWinding (false);
                 p.addRectangle (x + w * 0.1f + h + 2.0f, y + h * 0.42f, w - h - w * 0.1f - 2.0f, h * 0.16f);
                 break;
+            case MoveType::DelayThrow: // echoes getting smaller
+                for (int k = 0; k < 4; ++k)
+                {
+                    const float r = h * (0.5f - 0.09f * k);
+                    p.addEllipse (x + w * (0.12f + 0.26f * k) - r * 0.5f, y + h * 0.5f - r * 0.5f, r, r);
+                }
+                break;
+            case MoveType::Bitcrush:  // staircase
+                for (int k = 0; k < 5; ++k)
+                    p.addRectangle (x + w * 0.2f * k, y + h * (0.8f - 0.18f * k), w * 0.2f + 0.5f, h * (0.2f + 0.18f * k));
+                break;
+            case MoveType::Phaser:    // rising stripes (barber pole)
+                for (int k = 0; k < 4; ++k)
+                {
+                    const float x0 = x + w * (0.05f + 0.24f * k);
+                    p.startNewSubPath (x0, y + h);
+                    p.lineTo (x0 + w * 0.12f, y + h);
+                    p.lineTo (x0 + w * 0.3f, y);
+                    p.lineTo (x0 + w * 0.18f, y);
+                    p.closeSubPath();
+                }
+                break;
+            case MoveType::Width:     // arrows out
+                p.addTriangle (x, y + h * 0.5f, x + w * 0.3f, y + h * 0.1f, x + w * 0.3f, y + h * 0.9f);
+                p.addTriangle (x + w, y + h * 0.5f, x + w * 0.7f, y + h * 0.1f, x + w * 0.7f, y + h * 0.9f);
+                p.addRectangle (x + w * 0.28f, y + h * 0.4f, w * 0.44f, h * 0.2f);
+                break;
+            case MoveType::Scratch:   // record
+                p.addEllipse (x + w * 0.5f - h * 0.55f, y - h * 0.05f, h * 1.1f, h * 1.1f);
+                p.addEllipse (x + w * 0.5f - h * 0.18f, y + h * 0.32f, h * 0.36f, h * 0.36f);
+                p.setUsingNonZeroWinding (false);
+                break;
+            case MoveType::PreVerb:   // swell into a hit
+                p.startNewSubPath (x, y + h * 0.95f);
+                p.quadraticTo (x + w * 0.55f, y + h * 0.9f, x + w * 0.72f, y + h * 0.05f);
+                p.lineTo (x + w * 0.72f, y + h * 0.95f);
+                p.closeSubPath();
+                p.addRectangle (x + w * 0.82f, y, w * 0.14f, h * 0.95f);
+                break;
             default: break;
         }
         g.setColour (juce::Colour (0xaa1a0b2a));
@@ -560,6 +599,13 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
         { MoveType::Gap,      { 466, 752, 306, 109 }, 0.63f, "DEPTH", "LENGTH", "The breath before the drop: silence or a filter right before it hits" },
         { MoveType::Impact,   { 790, 752, 306, 109 }, 0.03f, "LEVEL", "TAIL",  "Hit + crash on the drop's downbeat (plays after the drop)" },
         { MoveType::Boom,     { 1114, 752, 306, 109 }, 0.79f, "LEVEL", "LENGTH", "Sub boom on the drop's downbeat (plays after the drop)" },
+        // page 3: fx moves
+        { MoveType::DelayThrow, { 466, 630, 306, 109 }, 0.50f, "FEEDBACK", "TIME", "Tempo-synced echoes: throw the last beat into the delay, or build the echoes up" },
+        { MoveType::Bitcrush, { 790, 630, 306, 109 }, 0.27f, "CRUSH", "LENGTH", "Crushes the bits / sample rate more and more into the drop" },
+        { MoveType::Phaser,   { 1114, 630, 306, 109 }, 0.86f, "DEPTH", "LENGTH", "Barber-pole: a phaser that rises forever, speeding up into the drop (or a phaser / flanger sweep)" },
+        { MoveType::Width,    { 466, 752, 306, 109 }, 0.62f, "AMOUNT", "LENGTH", "Squeezes the build to mono so the drop hits full width (or widens it)" },
+        { MoveType::Scratch,  { 790, 752, 306, 109 }, 0.04f, "SPEED", "LENGTH", "Vinyl: baby scratches, a DJ rewind, or a turntable brake into the drop" },
+        { MoveType::PreVerb,  { 1114, 752, 306, 109 }, 0.15f, "LEVEL", "LENGTH", "The drop's own downbeat, reverb-swelled in reverse so it rises into the drop" },
     };
     for (auto& d : wides)
     {
@@ -568,7 +614,7 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
         c->type = d.type;
         c->bounds = d.card;
         c->kind = ValueKind::division;
-        c->page = 1;
+        c->page = km::cardPage (d.type);
         const auto x = d.card.getX(), y = d.card.getY(), w = d.card.getWidth();
 
         c->wide = std::make_unique<WideCard> (d.card, d.type, d.hue, d.knob, d.value);
@@ -631,14 +677,17 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
         cards.push_back (std::move (c));
     }
 
-    auto tab1 = std::make_unique<PageTab> (juce::Rectangle<int> (1172, 589, 120, 23), "MAIN MOVES");
-    auto tab2 = std::make_unique<PageTab> (juce::Rectangle<int> (1298, 589, 124, 23), "BUILD & DROP");
+    auto tab1 = std::make_unique<PageTab> (juce::Rectangle<int> (1046, 589, 120, 23), "MAIN MOVES");
+    auto tab2 = std::make_unique<PageTab> (juce::Rectangle<int> (1172, 589, 124, 23), "BUILD & DROP");
+    auto tab3 = std::make_unique<PageTab> (juce::Rectangle<int> (1302, 589, 120, 23), "FX MOVES");
     tab1->onClick = [this] { setPage (0); };
     tab2->onClick = [this] { setPage (1); };
-    parent.addAndMakeVisible (*tab1);
-    parent.addAndMakeVisible (*tab2);
+    tab3->onClick = [this] { setPage (2); };
+    for (auto* t : { tab1.get(), tab2.get(), tab3.get() })
+        parent.addAndMakeVisible (*t);
     tabs.push_back (std::move (tab1));
     tabs.push_back (std::move (tab2));
+    tabs.push_back (std::move (tab3));
 
     setPage (0);
     refresh();
@@ -646,14 +695,14 @@ EffectCards::EffectCards (KoolaidProcessor& p, MoveStackView& s, juce::Component
 
 void EffectCards::setPage (int p)
 {
-    page = juce::jlimit (0, 1, p);
-    page2Panel->setVisible (page == 1);
-    if (page == 1) page2Panel->toFront (false);
+    page = juce::jlimit (0, 2, p);
+    page2Panel->setVisible (page >= 1);
+    if (page >= 1) page2Panel->toFront (false);
     for (auto& c : cards)
         for (auto* comp : c->components())
         {
             comp->setVisible (c->page == page);
-            if (c->page == 1 && page == 1) comp->toFront (false);
+            if (c->page == page && page >= 1) comp->toFront (false);
         }
     for (size_t i = 0; i < tabs.size(); ++i)
         static_cast<PageTab*> (tabs[i].get())->setActive ((int) i == page);
@@ -666,7 +715,7 @@ void EffectCards::followSelection()
     const auto& moves = proc.getModel().moves;
     if (sel >= 0 && sel < (int) moves.size())
     {
-        const int want = (int) moves[(size_t) sel].type >= (int) MoveType::Riser ? 1 : 0;
+        const int want = km::cardPage (moves[(size_t) sel].type);
         if (want != page) setPage (want);
     }
     refresh();
@@ -793,7 +842,9 @@ void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
     juce::PopupMenu menu;
     if (card.kind == ValueKind::division)
     {
-        menu.addSectionHeader (card.type == MoveType::Chops || card.type == MoveType::Stutter ? "RATE" : "LENGTH");
+        const auto ty = card.type;
+        menu.addSectionHeader (ty == MoveType::DelayThrow ? "ECHO TIME"
+                               : (ty == MoveType::Chops || ty == MoveType::Stutter || ty == MoveType::Pump ? "RATE" : "LENGTH"));
         for (int i = 0; i < (int) km::divisions().size(); ++i)
             menu.addItem (1 + i, km::divisions()[(size_t) i].longLabel, true, m.division == i);
     }
@@ -812,7 +863,9 @@ void EffectCards::showValueMenu (Card& card, juce::Component* anchor)
         else
         {
             mv.division = r - 1;
-            mv.customRegion = false;   // a new length means "use my natural spot" again
+            // a new length means "use my natural spot" again (a new rate / echo time doesn't)
+            if (t != MoveType::Chops && t != MoveType::Stutter && t != MoveType::Pump && t != MoveType::DelayThrow)
+                mv.customRegion = false;
         }
         if (onEdited) onEdited();
         if (onStackChanged) onStackChanged();
@@ -857,7 +910,7 @@ void EffectCards::refresh()
             const auto names = km::modeNames (c->type);
             c->artMode->setText (names[juce::jlimit (0, names.size() - 1, m.mode)].toUpperCase());
         }
-        if (c->page == 1 && c->knob && ! c->knob->isDragging())
+        if (c->page >= 1 && c->knob && ! c->knob->isDragging())
             c->knob->setValue (m.knob);
         for (size_t i = 0; i < c->modes.size(); ++i)
             c->modes[i]->setOn ((int) i == m.mode);

@@ -30,6 +30,7 @@ public:
     void openManual();
     void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
     void showCardPage (int p) { if (cards) cards->setPage (p); }
+    void refreshForSnapshot() { refreshAll(); }
     void showTab (int t) { setTab (t); }
     void showCurveEditorForSnapshot()
     {

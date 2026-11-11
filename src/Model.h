@@ -10,7 +10,7 @@ namespace km
 {
 
 //==============================================================================
-/** The ten move types. One effect card exists per type; the stack can hold
+/** The move types. One effect card exists per type; the stack can hold
     any number of instances in any order. */
 enum class MoveType : int
 {
@@ -31,6 +31,13 @@ enum class MoveType : int
     Gap,        // the "breath" right before the drop
     Impact,     // hit + crash on the drop (plays after the drop)
     Boom,       // sub boom on the drop (plays after the drop)
+    // page 3: fx moves
+    DelayThrow, // tempo-synced echo throw / ping-pong build
+    Bitcrush,   // bit depth / sample rate crush ramp
+    Phaser,     // barber-pole rise, phaser sweep, flanger
+    Width,      // stereo collapse to mono / widen
+    Scratch,    // vinyl scratch, rewind, brake
+    PreVerb,    // the drop's own downbeat, reverb-swelled in reverse into the drop
     NumTypes
 };
 
@@ -38,6 +45,9 @@ constexpr int numMoveTypes = (int) MoveType::NumTypes;
 
 /** Moves that play after the drop (on the downbeat) rather than inside the build zone. */
 inline bool playsAfterDrop (MoveType t) { return t == MoveType::Impact || t == MoveType::Boom; }
+
+/** Which page of effect cards a move lives on: 0 main moves, 1 build & drop, 2 fx moves. */
+inline int cardPage (MoveType t) { return (int) t >= (int) MoveType::DelayThrow ? 2 : ((int) t >= (int) MoveType::Riser ? 1 : 0); }
 
 //==============================================================================
 /** Note divisions used by the card dropdowns. Values are in quarter-note beats

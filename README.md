@@ -62,10 +62,23 @@ Every push builds the plug-in on GitHub Actions:
 |---|---|---|
 | **Noise Riser** | Level · Length | Noise Sweep, Uplifter, Snare Wash |
 | **Reverse Crash** | Level · Length | Crash, Splash, Dark Wash |
-| **Sidechain Pump** | Depth · Rate | Smooth, Hard, Rising |
+| **Sidechain Pump** | Depth · Rate | Smooth, Hard, Rising, Follow Kick |
 | **Drop Gap** | Depth · Length | Silence, Low-pass, High-pass |
 | **Impact** | Level · Tail | Hit + Crash, Hit Only, Crash + Downlifter (plays on the drop) |
 | **Sub Boom** | Level · Length | Deep, Punchy, Long Dive (plays on the drop) |
+
+**FX MOVES** page:
+
+![FX Moves page](docs/screenshot-page3.png)
+
+| Card | Knob / value | Variations |
+|---|---|---|
+| **Delay Throw** | Feedback · Time | Throw (track drops out under the echoes), Ping-Pong Build, Tape Echo |
+| **Bitcrush** | Crush · Length | Bit Ramp, Downsample, Full Crush |
+| **Phaser** | Depth · Length | Barber-Pole Rise (endlessly rising), Phaser Sweep, Flanger |
+| **Stereo Width** | Amount · Length | Collapse To Mono, Widen Out, Mono Snap |
+| **Vinyl Scratch** | Speed · Length | Baby Scratch, Rewind, Brake |
+| **Pre-Verb** | Level · Length | Downbeat, Drop Bar, Snare (the drop's own hit, reverb-swelled in reverse) |
 
 **Workflow:** undo/redo (stack title bar), A/B compare of two versions, an automatable
 **Build Amount** parameter (0% = original, 100% = full drop, live), and stem export (music + FX).
@@ -79,7 +92,9 @@ move happens (double-click for auto).
 stem on the **AUDIO 2** tab) and uses those exact hits for the drum moves. Anything it can't find
 falls back to a built-in sound. The **FX LAYER** tab shows just what the moves add.
 
-Presets: 11 factory presets; **SAVE / SAVE AS / BROWSE** store your own in `Documents/Koolaid Man/Presets`.
+Presets: 67 factory presets in 9 genres (Classic, Trap, Drill, Hip-Hop, EDM, House, Bass, Pop, Chill);
+**SAVE / SAVE AS / BROWSE** store your own in `Documents/Koolaid Man/Presets`. Right-click **ROLL** to roll
+in a genre's style, and lock moves you want ROLL to keep.
 Everything (audio included) is saved with your DAW project.
 
 ## Build from source

@@ -184,6 +184,23 @@ std::vector<Preset> factoryPresets()
     G ("Tape Warble", "Chill", { mk (T::Pitch, [] (M m) { m.semitones = -2; m.mode = 1; m.knob = 0.5f; }), mk (T::Filter, [] (M m) { m.mode = 3; m.knob = 0.4f; m.knob2 = 0.4f; }),
                                  mk (T::TapeStop, [] (M m) { m.division = 5; m.knob = 0.35f; }) });
     G ("Cloud Nine", "Chill", { mk (T::Atmos, [] (M m) { m.mode = 3; m.knob = 0.6f; m.knob2 = 0.5f; }), mk (T::Chops, [] (M m) { m.mode = 2; m.division = 4; m.knob = 0.35f; }) });
+    // FX moves showcase
+    G ("Echo Throw", "Trap", { mk (T::Hats, [] (M m) { m.mode = 0; m.knob = 0.6f; }), mk (T::DelayThrow, [] (M m) { m.mode = 0; m.division = 4; m.knob = 0.7f; }),
+                               mk (T::Boom, [] (M m) { m.mode = 0; m.knob = 0.8f; }) });
+    G ("Scratch Drill", "Drill", { mk (T::Hats, [] (M m) { m.mode = 1; m.knob = 0.6f; }), mk (T::Bass808, [] (M m) { m.mode = 0; m.knob = 0.85f; }),
+                                   mk (T::Scratch, [] (M m) { m.mode = 0; m.division = 4; m.knob = 0.5f; }) });
+    G ("Rewind Selecta", "Hip-Hop", { mk (T::Filter, [] (M m) { m.mode = 0; m.knob = 0.45f; m.knob2 = 0.35f; }), mk (T::Scratch, [] (M m) { m.mode = 1; m.division = 5; m.knob = 0.6f; }) });
+    G ("Endless Rise", "EDM", { mk (T::DrumMoves, [] (M m) { m.mode = 0; m.knob = 0.8f; }), mk (T::Phaser, [] (M m) { m.mode = 0; m.division = 8; m.knob = 0.85f; }),
+                                mk (T::Riser, [] (M m) { m.mode = 1; m.division = 8; m.knob = 0.55f; }), mk (T::Width, [] (M m) { m.mode = 0; m.division = 8; m.knob = 0.9f; }),
+                                mk (T::Impact, [] (M m) { m.mode = 0; m.knob = 0.75f; }) });
+    G ("Phase Shift House", "House", { mk (T::Pump, [] (M m) { m.mode = 3; m.knob = 0.6f; }), mk (T::Phaser, [] (M m) { m.mode = 1; m.division = 8; m.knob = 0.7f; }),
+                                       mk (T::PreVerb, [] (M m) { m.mode = 0; m.division = 6; m.knob = 0.6f; }) });
+    G ("Crushed", "Bass", { mk (T::Bitcrush, [] (M m) { m.mode = 2; m.division = 7; m.knob = 0.85f; }), mk (T::Stutter, [] (M m) { m.mode = 1; m.division = 2; m.knob = 0.45f; }),
+                            mk (T::Gap, [] (M m) { m.mode = 0; m.division = 4; }), mk (T::Boom, [] (M m) { m.mode = 1; m.knob = 0.8f; }) });
+    G ("Pre-Verb Pop", "Pop", { mk (T::Chops, [] (M m) { m.mode = 2; m.division = 3; m.knob = 0.45f; }), mk (T::Width, [] (M m) { m.mode = 0; m.division = 7; m.knob = 0.9f; }),
+                                mk (T::PreVerb, [] (M m) { m.mode = 1; m.division = 6; m.knob = 0.65f; }) });
+    G ("Dusty Brake", "Chill", { mk (T::Filter, [] (M m) { m.mode = 3; m.knob = 0.4f; m.knob2 = 0.3f; }), mk (T::DelayThrow, [] (M m) { m.mode = 2; m.division = 4; m.knob = 0.5f; }),
+                                 mk (T::Scratch, [] (M m) { m.mode = 2; m.division = 5; m.knob = 0.4f; }) });
     G ("Slow Motion", "Chill", { mk (T::Pitch, [] (M m) { m.semitones = -12; m.knob = 0.5f; }), mk (T::Atmos, [] (M m) { m.mode = 0; m.knob = 0.5f; m.knob2 = 0.4f; }),
                                  mk (T::Gap, [] (M m) { m.mode = 1; m.division = 5; m.knob = 0.8f; }) });
     return p;
@@ -305,16 +322,27 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums, int style)
                                         { 2,    1.5f, 1.5f, 3,    1,    1,    1,    2,    1,    2 },     // Pop
                                         { .5f,  3,    1,    3,    .3f,  .5f,  .5f,  .5f,  .5f,  .7f } }; // Chill
     static const T bodyTypes[10] = { T::Chops, T::Filter, T::Pitch, T::Atmos, T::DrumMoves, T::Hats, T::Stutter, T::Riser, T::Pump, T::RevCrash };
-    //                                   Tape  Rev   Stut  Gap   none
-    static const float endW[9][5] = { { 2,    2,    1,    1,    1 },
-                                      { 2,    1,    1,    3,    1 },
-                                      { 1,    1,    1,    3,    1 },
-                                      { 3,    2,    1,    1,    1 },
-                                      { .5f,  1,    2,    1,    2 },
-                                      { .5f,  2,    1,    1,    2 },
-                                      { 1,    1,    3,    3,    .5f },
-                                      { 1,    2,    1,    1,    1 },
-                                      { 3,    2,    .3f,  .5f,  1 } };
+    //                                   Tape  Rev   Stut  Gap   none  Throw Vinyl
+    static const float endW[9][7] = { { 2,    2,    1,    1,    1,    1,    1 },
+                                      { 2,    1,    1,    3,    1,    1.5f, .7f },
+                                      { 1,    1,    1,    3,    1,    1,    .7f },
+                                      { 3,    2,    1,    1,    1,    1.5f, 2.5f },
+                                      { .5f,  1,    2,    1,    2,    .7f,  .3f },
+                                      { .5f,  2,    1,    1,    2,    1,    .5f },
+                                      { 1,    1,    3,    3,    .5f,  .7f,  1 },
+                                      { 1,    2,    1,    1,    1,    1.5f, .3f },
+                                      { 3,    2,    .3f,  .5f,  1,    1,    1.5f } };
+    // an extra fx move on top, sometimes:  Crush Phase Width PreVb Echo
+    static const float fxW[9][5] = { { 1,    1,    1,    1,    1 },
+                                     { .5f,  .5f,  1,    1,    1 },
+                                     { .7f,  .3f,  1,    .7f,  .7f },
+                                     { 1,    .5f,  .5f,  .7f,  1.5f },
+                                     { .5f,  2,    2,    1.5f, .7f },
+                                     { .3f,  2,    1,    1,    1 },
+                                     { 2.5f, 1,    1,    .7f,  .5f },
+                                     { .3f,  1,    2,    2,    1 },
+                                     { 1.5f, 1,    .5f,  1,    2 } };
+    static const float pFx[9] = { .35f, .25f, .25f, .3f, .4f, .3f, .4f, .4f, .3f };
     static const float p808[9]   = { .3f, .7f, .8f, .4f, .2f, .1f, .3f, .2f, .1f };
     static const float pAfter[9] = { .35f, .4f, .4f, .3f, .8f, .5f, .8f, .5f, .2f };
 
@@ -356,7 +384,7 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums, int style)
         add (T::Bass808, [&] (Move& m) { m.mode = style == Trap || style == Drill ? 0 : pick ({ 0, 0, 1, 2 }); m.knob = 0.7f + 0.25f * rng.nextFloat(); });
 
     // the ending into the drop
-    switch (weighted ({ endW[style], endW[style] + 5 }))
+    switch (weighted ({ endW[style], endW[style] + 7 }))
     {
         case 0: add (T::TapeStop, [&] (Move& m) { m.mode = pick ({ 0, 0, 0, 1 }); m.division = pick ({ 4, 5, 5, 6 }); m.knob = 0.3f + 0.5f * rng.nextFloat(); }); break;
         case 1: add (T::Reverse,  [&] (Move& m) { m.mode = pick ({ 0, 0, 1 }); m.division = pick ({ 3, 4, 5, 5, 6 }); m.knob = 0.7f + 0.3f * rng.nextFloat(); }); break;
@@ -365,7 +393,30 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums, int style)
                 add (T::Stutter, [&] (Move& m) { m.mode = 1; m.division = pick ({ 2, 3 }); m.knob = 0.25f + 0.3f * rng.nextFloat(); });
             break;
         case 3: add (T::Gap, [&] (Move& m) { m.mode = style == Trap || style == Drill || style == Bass ? 0 : pick ({ 0, 1, 2 }); m.division = pick ({ 3, 4, 4 }); m.knob = 0.85f + 0.15f * rng.nextFloat(); }); break;
+        case 5: add (T::DelayThrow, [&] (Move& m) { m.mode = 0; m.division = pick ({ 3, 4, 4 }); m.knob = 0.5f + 0.35f * rng.nextFloat(); }); break;
+        case 6: add (T::Scratch, [&] (Move& m)
+                {
+                    m.mode = style == Chill ? pick ({ 2, 2, 1 }) : (style == HipHop ? pick ({ 1, 1, 0, 2 }) : rng.nextInt (3));
+                    m.division = m.mode == 0 ? pick ({ 4, 5 }) : pick ({ 4, 5, 5 });
+                    m.knob = 0.35f + 0.5f * rng.nextFloat();
+                }); break;
         default: break; // straight into the drop
+    }
+
+    // an fx layer on top
+    if (rng.nextFloat() < pFx[style])
+    {
+        switch (weighted ({ fxW[style], fxW[style] + 5 }))
+        {
+            case 0: add (T::Bitcrush, [&] (Move& m) { m.mode = style == Bass ? pick ({ 2, 2, 1 }) : rng.nextInt (3); m.division = pick ({ 6, 7, 7 }); m.knob = 0.5f + 0.4f * rng.nextFloat(); }); break;
+            case 1: add (T::Phaser,   [&] (Move& m) { m.mode = style == EDM ? 0 : pick ({ 0, 0, 1, 2 }); m.division = pick ({ 7, 8, 8 }); m.knob = 0.5f + 0.45f * rng.nextFloat(); }); break;
+            case 2: add (T::Width,    [&] (Move& m) { m.mode = pick ({ 0, 0, 0, 2, 1 }); m.division = m.mode == 2 ? pick ({ 4, 5 }) : pick ({ 7, 8 }); m.knob = 0.7f + 0.3f * rng.nextFloat(); }); break;
+            case 3: add (T::PreVerb,  [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 5, 6, 6 }); m.knob = 0.4f + 0.4f * rng.nextFloat(); }); break;
+            default:
+                if (std::none_of (moves.begin(), moves.end(), [] (const Move& m) { return m.type == T::DelayThrow; }))
+                    add (T::DelayThrow, [&] (Move& m) { m.mode = style == Chill || style == HipHop ? 2 : 1; m.division = pick ({ 3, 4 }); m.knob = 0.35f + 0.4f * rng.nextFloat(); });
+                break;
+        }
     }
 
     // something on the downbeat
