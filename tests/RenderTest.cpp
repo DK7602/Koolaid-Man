@@ -3,6 +3,9 @@
 // Usage: KoolaidTests [outputDir|-] [sampleRate]   (writes WAVs when an output dir is given)
 
 #include <set>
+#if defined (__linux__)
+ #include <sys/resource.h>
+#endif
 #include <map>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Model.h"
@@ -956,6 +959,149 @@ int main (int argc, char** argv)
                 auto rt = renderDrop (mt, nullptr, 1);
                 if (! checkBuffer (full (*rt), "roll at " + juce::String (tempo) + " bpm")) ++failures;
             }
+    }
+
+    // ---- detection on a dense, mastered-sounding mix with drums that aren't our own sounds
+    {
+        const double dbpm = 140.0, dspb = sr * 60.0 / dbpm;
+        const int bars = 8, N = (int) (dspb * 4 * bars);
+        juce::AudioBuffer<float> mix (2, N);
+        mix.clear();
+        juce::Random dr (11);
+        const double two = juce::MathConstants<double>::twoPi;
+        std::vector<juce::int64> kicks, snares, hats;
+        // filter coefficients from frequencies, so the drums sound the same at every sample rate
+        const double snLp = 1.0 - std::exp (-two * 7000.0 / sr), hatLp = 1.0 - std::exp (-two * 1240.0 / sr);
+        const double bassA = 1.0 - std::exp (-two * 153.0 / sr);
+        for (int bar = 0; bar < bars; ++bar)
+            for (int st = 0; st < 16; ++st)
+            {
+                const auto pos = (juce::int64) std::llround ((bar * 16 + st) * dspb / 4.0);
+                // kick: 1, the "and" of 2, 3 (a clicky kick, not our 808)
+                if (st == 0 || st == 6 || st == 8)
+                {
+                    kicks.push_back (pos);
+                    for (int i = 0; i < (int) (0.3 * sr) && pos + i < N; ++i)
+                    {
+                        const double t = i / sr;
+                        const double v = std::sin (two * (50.0 * t + 100.0 * (1.0 - std::exp (-t * 30.0)) / 30.0)) * std::exp (-t * 9.0) * 0.8
+                                       + (dr.nextFloat() - 0.5f) * std::exp (-t * 400.0) * 0.6;   // beater click
+                        mix.addSample (0, (int) pos + i, (float) v); mix.addSample (1, (int) pos + i, (float) v);
+                    }
+                }
+                // snare on 2 and 4 (plus a quiet ghost note), a body at 190 Hz plus a noise crack
+                if (st == 4 || st == 12 || st == 15)
+                {
+                    const float vel = st == 15 ? 0.2f : 1.0f;
+                    if (st != 15) snares.push_back (pos);
+                    double lp = 0.0;
+                    for (int i = 0; i < (int) (0.25 * sr) && pos + i < N; ++i)
+                    {
+                        const double t = i / sr;
+                        const double nz = dr.nextFloat() * 2.0 - 1.0;
+                        lp += (nz - lp) * snLp;
+                        const double v = (std::sin (two * 190.0 * t) * std::exp (-t * 25.0) * 0.5 + (nz - lp) * std::exp (-t * 14.0) * 0.55) * vel;
+                        mix.addSample (0, (int) pos + i, (float) v); mix.addSample (1, (int) pos + i, (float) v * 0.95f);
+                    }
+                }
+                // closed hats on every 16th, velocity varies
+                {
+                    hats.push_back (pos);
+                    const float vel = (st % 4 == 0) ? 0.35f : (st % 2 == 0 ? 0.25f : 0.15f);
+                    double h1 = 0.0, h2 = 0.0;
+                    for (int i = 0; i < (int) (0.04 * sr) && pos + i < N; ++i)
+                    {
+                        const double t = i / sr;
+                        const double nz = dr.nextFloat() * 2.0 - 1.0;
+                        h1 += (nz - h1) * hatLp; h2 += ((nz - h1) - h2) * hatLp;
+                        const double v = ((nz - h1) - h2) * std::exp (-t * 90.0) * vel;
+                        mix.addSample (0, (int) pos + i, (float) v * 0.9f); mix.addSample (1, (int) pos + i, (float) v);
+                    }
+                }
+            }
+        // bassline (saw, low-passed) in the kick's range, chords, and a vibrato lead
+        const double bassNotes[4] = { 55.0, 55.0, 65.41, 73.42 };
+        const double chords[4][3] = { { 220.0, 261.63, 329.63 }, { 220.0, 261.63, 329.63 }, { 261.63, 329.63, 392.0 }, { 293.66, 349.23, 440.0 } };
+        double bassLp = 0.0, phB = 0.0, phC[3] {}, phL = 0.0;
+        for (int i = 0; i < N; ++i)
+        {
+            const double t = i / sr;
+            const int half = (int) (i / (dspb * 2.0)) % 4;
+            phB += bassNotes[half] / sr; phB -= std::floor (phB);
+            bassLp += ((2.0 * phB - 1.0) - bassLp) * bassA;
+            double ch = 0.0;
+            for (int k = 0; k < 3; ++k) { phC[k] += chords[half][k] / sr; phC[k] -= std::floor (phC[k]); ch += (2.0 * phC[k] - 1.0); }
+            phL += 440.0 * (1.0 + 0.01 * std::sin (two * 5.5 * t)) / sr; phL -= std::floor (phL);
+            const double lead = (phL < 0.3 ? 1.0 : -0.43) * 0.06 * (0.5 + 0.5 * std::sin (two * 0.25 * t));
+            const double v = bassLp * 0.35 + ch * 0.035 + lead;
+            mix.addSample (0, i, (float) v); mix.addSample (1, i, (float) (v * 0.97));
+        }
+        // "mastered": soft clip toward a loud, dense level
+        for (int c = 0; c < 2; ++c)
+        {
+            auto* d = mix.getWritePointer (c);
+            for (int i = 0; i < N; ++i) d[i] = (float) std::tanh (d[i] * 1.6) * 0.89f;
+        }
+        const auto an = analyseDrums (mix, sr, dspb, 4.0, 0.55f, 0.55f, 0.55f);
+        auto score = [&] (const DrumHits& h, const std::vector<juce::int64>& truth, const char* what)
+        {
+            const auto tol = (juce::int64) (0.025 * sr);
+            int hit = 0, falsePos = 0;
+            for (auto tpos : truth)
+                for (auto o : h.onsets) if (std::abs (o - tpos) <= tol) { ++hit; break; }
+            for (auto o : h.onsets)
+            {
+                bool match = false;
+                for (auto tpos : truth) if (std::abs (o - tpos) <= tol) { match = true; break; }
+                if (! match) ++falsePos;
+            }
+            const double recall = truth.empty() ? 1.0 : (double) hit / truth.size();
+            const double precision = h.onsets.empty() ? 0.0 : (double) (h.onsets.size() - falsePos) / h.onsets.size();
+            std::cout << "  dense mix " << juce::String (what).paddedRight (' ', 6) << (h.found ? "found" : "NOT found")
+                      << "  recall " << juce::String (recall * 100.0, 0) << "%  precision " << juce::String (precision * 100.0, 0) << "%  ("
+                      << h.onsets.size() << " hits, " << truth.size() << " real)\n";
+            return std::make_pair (recall, precision);
+        };
+        std::cout << "detection on a dense mix (140 bpm, foreign drum sounds, bassline, chords, lead, soft-clipped):\n";
+        const auto sn = score (an.snare, snares, "snare");
+        const auto kb = score (an.bass, kicks, "kick");
+        const auto hh = score (an.hats, hats, "hats");
+        if (! an.snare.found || sn.first < 0.8 || sn.second < 0.8) { std::cout << "FAIL: snare detection on a dense mix\n"; ++failures; }
+        if (! an.bass.found || kb.first < 0.9 || kb.second < 0.85) { std::cout << "FAIL: kick detection on a dense mix\n"; ++failures; }
+        if (! an.hats.found || hh.first < 0.75 || hh.second < 0.85) { std::cout << "FAIL: hat detection on a dense mix\n"; ++failures; }
+    }
+
+    // ---- a whole 10-minute song: analysis and a render stay quick
+    {
+        auto song = std::make_shared<ClipData>();
+        song->sampleRate = sr;
+        const int N = (int) (sr * 600.0);
+        song->audio.setSize (2, N);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < N; i += clip->audio.getNumSamples())
+                song->audio.copyFrom (ch, i, clip->audio, ch, 0, juce::jmin (clip->audio.getNumSamples(), N - i));
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        auto an = std::make_shared<DrumAnalysis> (analyseDrums (song->audio, sr, model.samplesPerBeat (sr), 4.0, 0.55f, 0.55f, 0.55f));
+        an->key = detectKey (song->audio, sr);
+        const double tAnalysis = juce::Time::getMillisecondCounterHiRes() - t0;
+        DropModel m = model;
+        m.music = song;
+        m.zoneEnd = std::floor (m.clipLengthBeats() / 4.0) * 4.0;
+        m.zoneStart = m.zoneEnd - 16.0;
+        m.moves = factoryPresets().front().moves;
+        t0 = juce::Time::getMillisecondCounterHiRes();
+        auto r = renderDrop (m, an, 1);
+        const double tRender = juce::Time::getMillisecondCounterHiRes() - t0;
+        long peakMb = -1;
+       #if defined (__linux__)
+        struct rusage ru {};
+        getrusage (RUSAGE_SELF, &ru);
+        peakMb = ru.ru_maxrss / 1024;
+       #endif
+        std::cout << "10-minute song: analysis " << juce::String (tAnalysis, 0) << " ms, render (Big Drop Energy, 4-bar build) "
+                  << juce::String (tRender, 0) << " ms, test process peak memory " << peakMb << " MB\n";
+        if (! checkBuffer (full (*r), "10-minute song")) ++failures;
+        if (tRender > 5000.0) { std::cout << "FAIL: rendering a long song is too slow\n"; ++failures; }
     }
 
     // ---- lengths in seconds: the same length whatever the tempo

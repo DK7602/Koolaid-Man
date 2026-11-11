@@ -436,6 +436,96 @@ public:
             check (m.moves.size() == before + 2, "redo replays both steps");
         }
 
+        // ---- damaged projects: garbage, truncated and bit-flipped state must never crash, and
+        //      the plug-in must keep working afterwards
+        {
+            juce::MemoryBlock good;
+            p.getStateInformation (good);
+            KoolaidProcessor q;
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            juce::Random fz (99);
+            int tries = 0;
+            bool ok = true;
+            auto stillWorks = [&]
+            {
+                juce::AudioBuffer<float> b (2, 512);
+                juce::MidiBuffer mb;
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 512; ++i) b.setSample (ch, i, 0.1f * (float) std::sin (i * 0.05));
+                q.processBlock (b, mb);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 512; ++i) if (! std::isfinite (b.getSample (ch, i))) return false;
+                return true;
+            };
+            // pure garbage
+            for (int k = 0; k < 60; ++k, ++tries)
+            {
+                juce::MemoryBlock junk ((size_t) (1 + fz.nextInt (4096)));
+                for (size_t i = 0; i < junk.getSize(); ++i) static_cast<char*> (junk.getData())[i] = (char) fz.nextInt (256);
+                q.setStateInformation (junk.getData(), (int) junk.getSize());
+                ok &= stillWorks();
+            }
+            // a real project cut short at many points
+            for (int k = 1; k <= 40; ++k, ++tries)
+            {
+                const int len = (int) (good.getSize() * (size_t) k / 41);
+                q.setStateInformation (good.getData(), len);
+                ok &= stillWorks();
+            }
+            // a real project with random bytes damaged
+            for (int k = 0; k < 40; ++k, ++tries)
+            {
+                juce::MemoryBlock bad (good);
+                for (int f = 0; f < 1 + fz.nextInt (20); ++f)
+                    static_cast<char*> (bad.getData())[fz.nextInt ((int) bad.getSize())] ^= (char) (1 + fz.nextInt (255));
+                q.setStateInformation (bad.getData(), (int) bad.getSize());
+                ok &= stillWorks();
+                pump (5);
+            }
+            q.setStateInformation (good.getData(), (int) good.getSize());   // and a good one still loads afterwards
+            pump (300);
+            check (ok && stillWorks(), juce::String (tries) + " damaged / garbage projects loaded without a crash, and it kept working");
+            check (q.getModel().moves.size() == p.getModel().moves.size(), "a good project still loads after all that");
+            q.releaseResources();
+        }
+
+        // ---- audio-thread CPU: 96 kHz, 64-sample blocks, sync preview playing the drop and all
+        //      eight live pads held at once (the worst case)
+        {
+            KoolaidProcessor q;
+            juce::MemoryBlock good;
+            p.getStateInformation (good);
+            q.setStateInformation (good.getData(), (int) good.getSize());
+            q.setPlayConfigDetails (2, 2, 96000.0, 64);
+            q.prepareToPlay (96000.0, 64);
+            waitForRender (q);
+            FakePlayHead cph;
+            q.setPlayHead (&cph);
+            for (int pad = 0; pad < km::LiveEngine::numPads; ++pad) q.setLivePad (pad, true);
+            juce::AudioBuffer<float> b (2, 64);
+            juce::MidiBuffer mb;
+            const int blocks = (int) (96000.0 * 10.0 / 64.0);   // 10 seconds of audio
+            const double ppqPerBlock = 64.0 * 130.0 / (60.0 * 96000.0);
+            const double startPpq = (q.getModel().clipStartBar - 1) * 4.0 + q.getModel().zoneStart;   // inside the drop's build
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < blocks; ++k)
+            {
+                cph.set (startPpq + k * ppqPerBlock, true);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 64; ++i) b.setSample (ch, i, 0.1f * (float) std::sin ((k * 64 + i) * 0.01));
+                q.processBlock (b, mb);
+            }
+            const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+            const double load = ms / 10000.0 * 100.0;
+            const bool synced = q.isSyncPlayheadActive();
+            for (int pad = 0; pad < km::LiveEngine::numPads; ++pad) q.setLivePad (pad, false);
+            q.setPlayHead (nullptr);
+            check (synced, "...with the in-sync preview playing the drop");
+            check (load < 25.0, "audio-thread CPU, worst case (96 kHz, 64-sample blocks, all pads): " + juce::String (load, 1) + "% of one core");
+            q.releaseResources();
+        }
+
         // ---- LIVE PADS: a MIDI note holds a pad, sample-accurately; automation does the same
         {
             KoolaidProcessor q;

@@ -1,4 +1,5 @@
 #include "DrumDetector.h"
+#include <juce_dsp/juce_dsp.h>
 
 namespace km
 {
@@ -129,8 +130,8 @@ namespace
 
     Buffer extract (const Buffer& src, juce::int64 start, int length, std::initializer_list<juce::IIRCoefficients> stages, int fadeOut)
     {
-        start = juce::jlimit<juce::int64> (0, src.getNumSamples() - 1, start);
-        length = (int) juce::jmin<juce::int64> (length, src.getNumSamples() - start);
+        start = std::max ((juce::int64) 0, std::min ((juce::int64) src.getNumSamples() - 1, start));
+        length = (int) std::min ((juce::int64) length, (juce::int64) src.getNumSamples() - start);
         Buffer out (2, juce::jmax (1, length));
         out.clear();
         for (int c = 0; c < 2; ++c)
@@ -151,10 +152,140 @@ namespace
         return out;
     }
 
+    /** Kick finder. A kick's pitch sweep puts new energy across the whole low end at once;
+        a bass note (or the bass coming back after a kick on a loud master) adds it at one pitch.
+        So: a short STFT of the low end (decimated to ~1 kHz, 64 ms window, 5 ms hop), an onset
+        function that rewards broad rises, adaptive peak picking, then exact timing from a fast
+        envelope (the steepest rise before the hit's peak). Returns sample positions. */
+    struct KickHit { juce::int64 pos; float strength; float lowJumpDb; };
+
+    std::vector<KickHit> findKicks (const std::vector<float>& mono, double sr, float sens)
+    {
+        const int dec = juce::jmax (1, (int) std::round (sr / 1000.0));
+        const double fs = sr / dec;
+        std::vector<float> lo;
+        lo.reserve (mono.size() / (size_t) dec + 1);
+        {
+            juce::IIRFilter hpf, lp1, lp2;
+            hpf.setCoefficients (juce::IIRCoefficients::makeHighPass (sr, 25.0));
+            lp1.setCoefficients (juce::IIRCoefficients::makeLowPass (sr, 220.0, 0.54));
+            lp2.setCoefficients (juce::IIRCoefficients::makeLowPass (sr, 220.0, 1.31));
+            for (size_t i = 0; i < mono.size(); ++i)
+            {
+                const float v = lp2.processSingleSampleRaw (lp1.processSingleSampleRaw (hpf.processSingleSampleRaw (mono[i])));
+                if (i % (size_t) dec == 0) lo.push_back (v);
+            }
+        }
+        constexpr int order = 7, fftN = 1 << order, win = 64;
+        // a window of silence in front, so a kick on the very first sample (clips usually start
+        // on a bar line) is seen arriving like any other
+        lo.insert (lo.begin(), (size_t) win, 0.0f);
+        const int hopL = juce::jmax (1, (int) std::round (fs * 0.005));
+        const int nFrames = ((int) lo.size() - win) / hopL;
+        if (nFrames < 8) return {};
+        juce::dsp::FFT fft (order);
+        std::vector<float> w ((size_t) win), buf ((size_t) fftN * 2);
+        for (int k = 0; k < win; ++k) w[(size_t) k] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) k / (float) (win - 1));
+        const double binHz = fs / fftN;
+        const int b0 = juce::jmax (1, (int) std::round (35.0 / binHz)), b1 = juce::jmin (fftN / 2 - 1, (int) std::round (180.0 / binHz));
+        const int nb = b1 - b0 + 1;
+        std::vector<float> p1 ((size_t) nb, -120.0f), p2 ((size_t) nb, -120.0f), odf ((size_t) nFrames, 0.0f), lvl ((size_t) nFrames, -120.0f);
+        for (int f = 0; f < nFrames; ++f)
+        {
+            std::fill (buf.begin(), buf.end(), 0.0f);
+            for (int k = 0; k < win; ++k) buf[(size_t) k] = lo[(size_t) (f * hopL + k)] * w[(size_t) k];
+            fft.performFrequencyOnlyForwardTransform (buf.data());
+            float sum = 0.0f, energy = 0.0f;
+            int spread = 0;
+            for (int b = b0; b <= b1; ++b)
+            {
+                const float mag = buf[(size_t) b];
+                energy += mag * mag;
+                const float L = 20.0f * std::log10 (mag + 1.0e-9f);
+                const float rise = L - juce::jmax (p1[(size_t) (b - b0)], p2[(size_t) (b - b0)]);
+                if (f >= 2 && rise > 0.0f) { sum += rise; if (rise > 6.0f) ++spread; }
+                p2[(size_t) (b - b0)] = p1[(size_t) (b - b0)];
+                p1[(size_t) (b - b0)] = L;
+            }
+            odf[(size_t) f] = sum * (float) spread / (float) nb;   // broad rises count, narrow ones barely
+            lvl[(size_t) f] = 10.0f * std::log10 (energy + 1.0e-12f);
+        }
+        float loudest = -120.0f;
+        double odfMean = 0.0;
+        for (int f = 0; f < nFrames; ++f) { loudest = juce::jmax (loudest, lvl[(size_t) f]); odfMean += odf[(size_t) f]; }
+        odfMean /= nFrames;
+
+        // fast envelope for exact timing (instant attack, 15 ms release)
+        std::vector<float> env (lo.size());
+        {
+            const float rel = std::exp (-1.0f / (float) (0.015 * fs));
+            float e = 0.0f;
+            for (size_t i = 0; i < lo.size(); ++i) { const float a = std::abs (lo[i]); e = a > e ? a : e * rel; env[i] = e; }
+        }
+
+        const float k = juce::jmap (sens, 0.0f, 1.0f, 2.6f, 1.3f);           // more sensitivity = lower threshold
+        const int gap = juce::jmax (1, (int) std::round (0.06 * fs / hopL));    // 60 ms between kicks at least
+        const int wl = juce::jmax (4, (int) std::round (0.25 * fs / hopL));     // +-250 ms for the local level
+        std::vector<KickHit> out;
+        int last = -gap - 1;
+        for (int f = 2; f < nFrames - 1; ++f)
+        {
+            const float o = odf[(size_t) f];
+            if (o <= 0.0f || o < odf[(size_t) f - 1] || o < odf[(size_t) f + 1]) continue;
+            double local = 0.0; int cnt = 0;
+            for (int j = juce::jmax (0, f - wl); j < juce::jmin (nFrames, f + wl); ++j) { local += odf[(size_t) j]; ++cnt; }
+            local /= juce::jmax (1, cnt);
+            if (o < (float) (local * k + odfMean * 0.5)) continue;
+            const int lf = juce::jmin (nFrames - 1, f + 3);
+            if (lvl[(size_t) lf] < loudest - 30.0f) continue;     // too quiet to be a kick in this song
+            // exact time: around the analysis window, find the hit's peak, then walk back to where it took off
+            const int a = juce::jmax (0, f * hopL - (int) (0.03 * fs)), z = juce::jmin ((int) env.size() - 1, f * hopL + win + (int) (0.01 * fs));
+            int pk = a;
+            for (int i = a; i <= z; ++i) if (env[(size_t) i] > env[(size_t) pk]) pk = i;
+            float base = env[(size_t) pk];
+            for (int i = a; i <= pk; ++i) base = juce::jmin (base, env[(size_t) i]);
+            const float thr = base + 0.2f * (env[(size_t) pk] - base);
+            int on = pk;
+            while (on > a && env[(size_t) on - 1] > thr) --on;
+            const auto pos = (juce::int64) juce::jmax (0, on - win) * dec;   // minus the silence in front
+            // how much the low end jumps: the level just after vs. just before the hit
+            double before = 0.0; int nb4 = 0;
+            for (int i = juce::jmax (0, on - (int) (0.04 * fs)); i < juce::jmax (0, on - (int) (0.005 * fs)); ++i) { before += env[(size_t) i]; ++nb4; }
+            before = nb4 > 0 ? before / nb4 : 0.0;
+            float after = 0.0f;
+            for (int i = on; i < juce::jmin ((int) env.size(), on + (int) (0.04 * fs)); ++i) after = juce::jmax (after, env[(size_t) i]);
+            const float jump = 20.0f * std::log10 ((after + 1.0e-6f) / (float) (before + 1.0e-6));
+            // a kick is a big, broad jump in the low end: small or narrow ones are the bass
+            // moving, or the mix breathing on a loud master
+            if (jump < juce::jmap (sens, 0.0f, 1.0f, 8.0f, 4.0f) || o < juce::jmap (sens, 0.0f, 1.0f, 3.0f, 1.2f))
+                continue;
+            if (f - last < gap)
+            {
+                if (! out.empty() && o > out.back().strength) out.back() = { pos, o, jump };
+                continue;
+            }
+            out.push_back ({ pos, o, jump });
+            last = f;
+        }
+        // two detections can resolve to the same hit: keep one
+        std::sort (out.begin(), out.end(), [] (const KickHit& x, const KickHit& y) { return x.pos < y.pos; });
+        std::vector<KickHit> merged;
+        for (auto& h : out)
+        {
+            if (! merged.empty() && h.pos - merged.back().pos < (juce::int64) (0.04 * sr))
+            {
+                if (h.strength > merged.back().strength) merged.back() = h;
+                continue;
+            }
+            merged.push_back (h);
+        }
+        return merged;
+    }
+
     float detectPitch (const std::vector<float>& lowBand, juce::int64 start, double sr)
     {
-        const int from = (int) juce::jmin<juce::int64> ((juce::int64) lowBand.size() - 1, start + (juce::int64) (0.04 * sr));
-        const int len = (int) juce::jmin<juce::int64> ((juce::int64) (0.16 * sr), (juce::int64) lowBand.size() - from);
+        const int from = (int) std::min ((juce::int64) lowBand.size() - 1, start + (juce::int64) (0.04 * sr));
+        const int len = (int) std::min ((juce::int64) (0.16 * sr), (juce::int64) lowBand.size() - from);
         const int minLag = (int) (sr / 160.0), maxLag = (int) (sr / 28.0);
         if (len < maxLag * 2) return 0.0f;
         double best = 0; int bestLag = 0;
@@ -260,16 +391,38 @@ DrumAnalysis analyseDrums (const Buffer& audio, double sr, double samplesPerBeat
 
     //------------------------------------------------------------------ 808 / kick
     {
-        const auto onsets = pickOnsets (eLow, sens808, ms (140), maxOf (eLow) - 26.0f);
-        float bestScore = -1.0e9f; int bestFrame = -1; int count = 0; float bestSustain = 0;
-        for (auto& o : onsets)
+        // kicks / 808s: broad low-end rises (see findKicks), placed exactly
+        std::vector<Onset> onsets;
+        std::vector<juce::int64> positions;
+        for (auto& k : findKicks (mono, sr, sens808))
         {
+            // a snare stirs up the low end too (its body, and a loud master's distortion):
+            // where we found a snare, only a big low-end jump of its own counts as a kick
+            bool onSnare = false;
+            for (auto sn : result.snare.onsets)
+                if (std::abs (sn - k.pos) < (juce::int64) (0.03 * sr)) { onSnare = true; break; }
+            if (onSnare && k.lowJumpDb < 10.0f)
+                continue;
+            onsets.push_back ({ (int) (k.pos / hop), k.strength });
+            positions.push_back (k.pos);
+        }
+        if (onsets.empty())   // very short clips: fall back to the low band's energy
+            for (auto& o : pickOnsets (eLow, sens808, ms (140), maxOf (eLow) - 26.0f))
+            {
+                onsets.push_back (o);
+                positions.push_back ((juce::int64) o.frame * hop);
+            }
+        float bestScore = -1.0e9f; int bestFrame = -1; int count = 0; float bestSustain = 0;
+        const float lowMax = maxOf (eLow);
+        for (size_t i = 0; i < onsets.size(); ++i)
+        {
+            const auto& o = onsets[i];
             const float peak = meanDb (eLow, o.frame, o.frame + ms (30));
             const float tail = meanDb (eLow, o.frame + ms (150), o.frame + ms (260));
             const float sustain = juce::jlimit (0.0f, 1.0f, 1.0f - (peak - tail) / 24.0f);
-            const float score = o.strength + sustain * 10.0f + (peak - maxOf (eLow)) * 0.3f;
+            const float score = juce::jmin (o.strength, 40.0f) + sustain * 10.0f + (peak - lowMax) * 0.3f;
             ++count;
-            result.bass.onsets.push_back ((juce::int64) o.frame * hop);
+            result.bass.onsets.push_back (positions[i]);
             if (score > bestScore) { bestScore = score; bestFrame = o.frame; bestSustain = sustain; }
         }
         result.bass.found = count >= 1 && bestFrame >= 0;
@@ -282,7 +435,7 @@ DrumAnalysis analyseDrums (const Buffer& audio, double sr, double samplesPerBeat
             juce::int64 next = audio.getNumSamples();
             for (auto s : result.bass.onsets)
                 if (s > start + hop * 4) { next = s; break; }
-            const int len = (int) juce::jlimit<juce::int64> ((juce::int64) (0.15 * sr), (juce::int64) samplesPerBeat, next - start);
+            const int len = (int) std::max ((juce::int64) (0.15 * sr), std::min ((juce::int64) samplesPerBeat, next - start));
             result.bass.oneShot = extract (audio, start, len, { juce::IIRCoefficients::makeLowPass (sr, 180.0),
                                                                 juce::IIRCoefficients::makeLowPass (sr, 180.0) }, (int) (0.03 * sr));
             result.bass.pitchHz = detectPitch (low, start, sr);
