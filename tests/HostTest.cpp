@@ -489,6 +489,48 @@ public:
             }
         }
 
+        // ---- Tension knob (host parameter) blends live toward the render without linked moves
+        {
+            juce::AudioProcessorParameter* tensionP = nullptr;
+            for (auto* prm : p.getParameters())
+                if (prm->getName (32) == "Tension") tensionP = prm;
+            check (tensionP != nullptr, "Tension parameter exposed to the host");
+            auto& m = p.getModel();
+            const auto saved = m.moves;
+            km::Move ch = km::defaultMove (km::MoveType::Chops);
+            ch.knob = 1.0f; ch.tensionLink = true;
+            m.moves = { ch };
+            p.modelChanged (true);
+            waitForRender (p);
+            auto r = p.getResult();
+            check (r != nullptr && r->base != nullptr, "render keeps a version without the linked moves");
+            if (tensionP != nullptr && r != nullptr && r->base != nullptr)
+            {
+                tensionP->setValueNotifyingHost (0.0f);
+                p.setSyncPreview (true);
+                const int block = 512;
+                juce::AudioBuffer<float> buf (2, block);
+                const double ppq0 = (m.clipStartBar - 1) * 4.0 + m.zoneStart + 2.0;
+                for (int k = 0; k < 2; ++k)
+                {
+                    ph.set (ppq0 + k * block / spb, true);
+                    buf.clear();
+                    p.processBlock (buf, midi);
+                }
+                const auto pos = (juce::int64) std::floor ((ppq0 + block / spb - (m.clipStartBar - 1) * 4.0) * spb);
+                bool same = true;
+                for (int i = 0; i < block; i += 13)
+                    same &= std::abs (buf.getSample (0, i) - r->base->mixAt (0, pos + i)) < 1.0e-4f;
+                check (same, "Tension 0% plays the build without the linked moves");
+                tensionP->setValueNotifyingHost (1.0f);
+                ph.set (0.0, false);
+                p.processBlock (buf, midi);
+            }
+            m.moves = saved;
+            p.modelChanged (true);
+            waitForRender (p);
+        }
+
         // ---- stems export: music + fx, same length
         {
             p.getSettings().exportRange = km::ExportRange::Stems;

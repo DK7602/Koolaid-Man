@@ -38,6 +38,13 @@ public:
         stopTimer();
         {
             skin::Skin::get().setTheme (args.contains ("light") ? skin::Theme::light : skin::Theme::dark);
+            if (args.contains ("tension") && proc->getModel().moves.size() > 4)
+            {
+                proc->getModel().moves[1].tensionLink = true;
+                proc->getModel().moves[4].tensionLink = true;
+                proc->getModel().tension.curve = km::curveEaseIn;
+                proc->modelChanged (true);
+            }
             if (args.contains ("timeline") && proc->getModel().moves.size() > 2)
             {
                 auto& st = proc->getModel().moves[2];            // time the stutter to the 2nd bar of the build

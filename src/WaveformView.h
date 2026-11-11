@@ -20,6 +20,7 @@ public:
     std::function<void()> onEmptyClicked;    // click on the empty display (load)
     std::function<void()> onLanesEdited;     // a move's timing was changed on the timeline
     std::function<void (int uid)> onLaneSelected;
+    std::function<void()> onTensionMenu;     // click on the TENSION lane
     void setSelectedUid (int uid) { if (uid != selectedUid) { selectedUid = uid; repaint(); } }
 
     static juce::Colour moveColour (km::MoveType);
@@ -61,6 +62,10 @@ private:
     struct LaneHit { int index = -1; LanePart part = LanePart::none; };
     bool isTimeline() const { return tab == 3; }
     juce::Rectangle<float> laneArea() const;
+    juce::Rectangle<float> tensionRow() const;
+    void drawTension (juce::Graphics&);
+    bool tensionDrag = false, tensionMoved = false;
+    float tensionDragStart = 1.0f, shownTension = -1.0f;
     float laneHeight() const;
     juce::Rectangle<float> laneBar (int index) const;
     LaneHit laneHitTest (juce::Point<float>) const;

@@ -133,15 +133,19 @@ void MoveStackView::paint (juce::Graphics& g)
         // label + arrow
         drawShadowText (g, m.stackLabel(), { r.getX() + 85.0f, r.getY(), 250.0f, r.getHeight() }, sk.wideBold (17.5f),
                         juce::Justification::centredLeft, m.enabled ? col::text : col::textDim);
-        if (m.customRegion)
+        float tagRight = r.getRight() - 32.0f;
+        auto badge = [&] (const juce::String& text, float w, juce::Colour fill, juce::Colour ink)
         {
-            juce::Rectangle<float> tag (r.getRight() - 84.0f, r.getY() + 5.0f, 52.0f, r.getHeight() - 10.0f);
-            g.setColour (col::cyan.withAlpha (0.9f));
+            juce::Rectangle<float> tag (tagRight - w, r.getY() + 5.0f, w, r.getHeight() - 10.0f);
+            g.setColour (fill);
             g.fillRoundedRectangle (tag, tag.getHeight() * 0.5f);
-            g.setColour (juce::Colour (0xff0b2a33));
+            g.setColour (ink);
             g.setFont (sk.bold (13.0f));
-            g.drawText ("TIMED", tag, juce::Justification::centred);
-        }
+            g.drawText (text, tag, juce::Justification::centred);
+            tagRight -= w + 4.0f;
+        };
+        if (m.customRegion) badge ("TIMED", 52.0f, col::cyan.withAlpha (0.9f), juce::Colour (0xff0b2a33));
+        if (m.tensionLink)  badge ("TENSION", 62.0f, col::yellow.withAlpha (0.92f), juce::Colour (0xff3a2a00));
         juce::Path tri;
         const float ax = r.getRight() - 18.0f, ay = r.getCentreY();
         tri.addTriangle (ax - 6.0f, ay - 3.0f, ax + 6.0f, ay - 3.0f, ax, ay + 4.0f);
@@ -264,6 +268,7 @@ void MoveStackView::showRowMenu (int index)
     menu.addItem (4, "Randomize This Move");
     menu.addItem (5, m.enabled ? "Bypass" : "Enable");
     menu.addItem (7, "Reset Timing (Auto)", m.customRegion);
+    menu.addItem (8, "Link to Tension", true, m.tensionLink);
     {
         juce::PopupMenu curves;
         const auto& names = km::curveNames();
@@ -310,6 +315,7 @@ void MoveStackView::showRowMenu (int index)
         else if (result == 5) m.enabled = ! m.enabled;
         else if (result == 6) mv.erase (mv.begin() + idx);
         else if (result == 7) m.customRegion = false;
+        else if (result == 8) m.tensionLink = ! m.tensionLink;
         if (onStackEdited) onStackEdited();
         refresh();
     });

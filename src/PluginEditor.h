@@ -188,6 +188,7 @@ private:
     ManualView manual;
     GridEditor gridEditor;
     void editCurve (int uid);
+    void showTensionMenu();
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;
 

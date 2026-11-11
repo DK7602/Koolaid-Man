@@ -149,6 +149,11 @@ void WaveformView::showMessage (const juce::String& msg, int millis)
 void WaveformView::tick()
 {
     ++blink;
+    if (isTimeline() && std::abs (proc.getTension() - shownTension) > 0.004f)   // automated in the DAW
+    {
+        shownTension = proc.getTension();
+        repaint();
+    }
     const bool active = proc.isPlaying() || proc.isSyncPlayheadActive();
     float x = -1.0f;
     if (active && proc.hasMusic())
@@ -310,8 +315,8 @@ void WaveformView::paint (juce::Graphics& g)
     }
 
     // waveform (a slim strip above the lanes on the timeline)
-    const float wc = isTimeline() ? 54.0f : waveCentre;
-    const float wh = isTimeline() ? 14.0f : waveHalf;
+    const float wc = isTimeline() ? 51.0f : waveCentre;
+    const float wh = isTimeline() ? 10.0f : waveHalf;
     if (tab == 1)
         drawWave (g, peaks, juce::Colour (0xffa6ec5a), juce::Colour (0xffc8ff7a), wc, wh);
     else if (tab == 2)
@@ -319,7 +324,10 @@ void WaveformView::paint (juce::Graphics& g)
     else
         drawWave (g, peaks, col::waveOut, col::waveIn, wc, wh);
     if (isTimeline())
+    {
+        drawTension (g);
         drawLanes (g);
+    }
 
     // detected drum hits (drum tab, or music tab when analysing the mix)
     if (auto a = proc.getAnalysis(); a != nullptr && total > 0 && (tab == 1 || (tab == 0 && ! a->fromDrumStem)))
@@ -416,6 +424,11 @@ void WaveformView::paint (juce::Graphics& g)
 //==============================================================================
 void WaveformView::mouseMove (const juce::MouseEvent& e)
 {
+    if (isTimeline() && tensionRow().contains (e.position))
+    {
+        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        return;
+    }
     if (isTimeline() && laneArea().contains (e.position))
     {
         const auto lh = laneHitTest (e.position);
@@ -447,6 +460,14 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
     }
     auto& m = proc.getModel();
     laneDrag = {};
+    tensionDrag = false;
+    if (isTimeline() && tensionRow().contains (e.position))
+    {
+        tensionDrag = true;
+        tensionMoved = false;
+        tensionDragStart = proc.getTension();
+        return;
+    }
     if (isTimeline() && laneArea().contains (e.position))
     {
         dragMode = Hit::none;
@@ -482,6 +503,16 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
     const double total = clipBeats();
     const double beat = xToBeat (e.position.x);
     const double minLen = 0.25;
+
+    if (tensionDrag)
+    {
+        if (! tensionMoved && e.getDistanceFromDragStart() < 3) return;
+        const bool first = ! tensionMoved;
+        tensionMoved = true;
+        proc.setTension (tensionDragStart - (float) e.getDistanceFromDragStartY() / 120.0f, first, false);
+        repaint();
+        return;
+    }
 
     if (laneDrag.index >= 0 && laneDrag.index < (int) m.moves.size() && laneDrag.part != LanePart::none)
     {
@@ -542,6 +573,14 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
 
 void WaveformView::mouseUp (const juce::MouseEvent&)
 {
+    if (tensionDrag)
+    {
+        if (tensionMoved) proc.setTension (proc.getTension(), false, true);
+        else if (onTensionMenu) onTensionMenu();
+        tensionDrag = false;
+        repaint();
+        return;
+    }
     laneDrag = {};
     dragMode = Hit::none;
     repaint();
@@ -598,9 +637,52 @@ juce::Colour WaveformView::moveColour (km::MoveType t)
     return col::lavender;
 }
 
+juce::Rectangle<float> WaveformView::tensionRow() const
+{
+    return { contentArea().getX() - 20.0f, 63.0f, contentArea().getWidth() + 40.0f, 16.0f };
+}
+
 juce::Rectangle<float> WaveformView::laneArea() const
 {
-    return { contentArea().getX() - 20.0f, 72.0f, contentArea().getWidth() + 40.0f, (float) getHeight() - 77.0f };
+    return { contentArea().getX() - 20.0f, 82.0f, contentArea().getWidth() + 40.0f, (float) getHeight() - 86.0f };
+}
+
+void WaveformView::drawTension (juce::Graphics& g)
+{
+    const auto& m = proc.getModel();
+    const auto row = tensionRow();
+    const float amount = proc.getTension();
+    const bool linked = m.anyTensionLinks();
+    g.setColour (col::yellow.withAlpha (linked ? 0.12f : 0.06f));
+    g.fillRoundedRectangle (row, 4.0f);
+    g.setColour (col::yellow.withAlpha (linked ? 0.6f : 0.3f));
+    g.drawRoundedRectangle (row.reduced (0.5f), 4.0f, 1.0f);
+
+    // the curve across the build zone, scaled by the Tension knob
+    const float x0 = beatToX (m.zoneStart), x1 = beatToX (m.zoneEnd);
+    if (x1 - x0 > 8.0f)
+    {
+        juce::Path fill, line;
+        const int steps = juce::jmax (8, (int) ((x1 - x0) / 3.0f));
+        fill.startNewSubPath (x0, row.getBottom() - 1.0f);
+        for (int k = 0; k <= steps; ++k)
+        {
+            const double t = (double) k / steps;
+            const juce::Point<float> pt (x0 + (float) t * (x1 - x0), row.getBottom() - 1.5f - (float) km::shapeCurve (m.tension, t, 1.0) * amount * (row.getHeight() - 3.0f));
+            fill.lineTo (pt);
+            if (k == 0) line.startNewSubPath (pt); else line.lineTo (pt);
+        }
+        fill.lineTo (x1, row.getBottom() - 1.0f);
+        fill.closeSubPath();
+        g.setColour (col::yellow.withAlpha (linked ? 0.35f : 0.15f));
+        g.fillPath (fill);
+        g.setColour (col::yellow.withAlpha (linked ? 1.0f : 0.5f));
+        g.strokePath (line, juce::PathStrokeType (1.5f));
+    }
+    const juce::String label = "TENSION " + juce::String (juce::roundToInt (amount * 100.0f)) + "%"
+                             + (linked ? "" : "  (no moves linked - click)");
+    drawShadowText (g, label, row.reduced (6.0f, 0.0f), Skin::get().heavyItalic (14.0f), juce::Justification::centredLeft,
+                    Skin::get().getTheme() == skin::Theme::light ? juce::Colour (0xff7a5a00) : col::yellow);
 }
 
 float WaveformView::laneHeight() const

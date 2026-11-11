@@ -293,6 +293,7 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
         if (cards) cards->refresh();
     };
     waveform.onLaneSelected = [this] (int uid) { stack.select (uid); };
+    waveform.onTensionMenu = [this] { showTensionMenu(); };
     waveform.onEmptyClicked = [this] { chooseFile (proc.getSettings().activeTab == 1 ? 1 : 0); };
 
     //------------------------------------------------------------------ transport
@@ -803,6 +804,58 @@ void KoolaidEditor::editCurve (int uid)
                 m.curve = km::curveCustom;
             }
         proc.modelChanged (true);
+        stack.refresh();
+        waveform.repaint();
+        presetName.setText (presetDisplayName());
+    });
+}
+
+void KoolaidEditor::showTensionMenu()
+{
+    auto& m = proc.getModel();
+    juce::PopupMenu menu, shapes;
+    menu.addSectionHeader ("TENSION MACRO");
+    int linked = 0;
+    for (auto& mv : m.moves) linked += mv.tensionLink ? 1 : 0;
+    menu.addItem (1, "Link All Moves", linked < (int) m.moves.size());
+    menu.addItem (2, "Unlink All Moves", linked > 0);
+    menu.addSeparator();
+    const auto& names = km::curveNames();
+    for (int i = 1; i < names.size() - 1; ++i)   // no "Auto" for the macro itself
+        shapes.addItem (200 + i, names[i], true, m.tension.curve == i);
+    shapes.addSeparator();
+    shapes.addItem (200 + km::curveCustom, "Custom - Draw It...", true, m.tension.curve == km::curveCustom);
+    menu.addSubMenu ("Tension Curve (how linked moves come in)", shapes);
+    menu.addSeparator();
+    for (int v : { 100, 75, 50, 25, 0 })
+        menu.addItem (300 + v, "Tension " + juce::String (v) + "%", true, std::abs (proc.getTension() * 100.0f - (float) v) < 0.5f);
+    menu.addSeparator();
+    menu.addItem (3, "Tip: drag the TENSION lane up/down, or automate \"Tension\" in your DAW", false);
+    menu.showMenuAsync (menuOptionsFor (&waveform), [this] (int r)
+    {
+        auto& mm = proc.getModel();
+        if (r == 1 || r == 2)
+        {
+            for (auto& mv : mm.moves) mv.tensionLink = r == 1;
+            proc.modelChanged (true);
+        }
+        else if (r == 200 + km::curveCustom)
+        {
+            auto start = mm.tension.curvePoints;
+            if (mm.tension.curve != km::curveCustom)
+                for (int i = 0; i < 16; ++i) start[(size_t) i] = (float) km::shapeCurve (mm.tension, i / 15.0, 1.0);
+            gridEditor.openCurve ("TENSION CURVE", start, [this] (const GridEditor::Values& v)
+            {
+                proc.getModel().tension.curvePoints = v;
+                proc.getModel().tension.curve = km::curveCustom;
+                proc.modelChanged (true);
+                waveform.repaint();
+            });
+            return;
+        }
+        else if (r >= 300) { proc.setTension ((float) (r - 300) / 100.0f, true, true); }
+        else if (r > 200) { mm.tension.curve = r - 200; proc.modelChanged (true); }
+        else return;
         stack.refresh();
         waveform.repaint();
         presetName.setText (presetDisplayName());

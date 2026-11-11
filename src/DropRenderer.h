@@ -38,8 +38,19 @@ struct RenderResult
     }
     float mixAt (int ch, juce::int64 p) const noexcept { return sampleAt (Layer::mix, ch, p); }
 
+    /** The same render without the moves linked to Tension (null when nothing is linked).
+        The Tension knob blends live between it (0) and this render (1). */
+    std::shared_ptr<const RenderResult> base;
+    float tensionAt (Layer layer, int ch, juce::int64 p, float tension) const noexcept
+    {
+        const float v = sampleAt (layer, ch, p);
+        if (base == nullptr || tension >= 0.9999f) return v;
+        const float b = base->sampleAt (layer, ch, p);
+        return b + (v - b) * tension;
+    }
+
     /** A stereo copy of [a, b) of one layer (allocates; not for the audio thread). */
-    juce::AudioBuffer<float> copyOf (Layer layer, juce::int64 a, juce::int64 b) const
+    juce::AudioBuffer<float> copyOf (Layer layer, juce::int64 a, juce::int64 b, float tension = 1.0f) const
     {
         a = juce::jlimit<juce::int64> (0, length, a);
         b = juce::jlimit<juce::int64> (a, length, b);
@@ -47,7 +58,7 @@ struct RenderResult
         for (int ch = 0; ch < 2; ++ch)
         {
             auto* d = out.getWritePointer (ch);
-            for (juce::int64 p = a; p < b; ++p) d[p - a] = sampleAt (layer, ch, p);
+            for (juce::int64 p = a; p < b; ++p) d[p - a] = tensionAt (layer, ch, p, tension);
         }
         return out;
     }

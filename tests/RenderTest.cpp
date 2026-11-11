@@ -356,6 +356,37 @@ int main (int argc, char** argv)
         if (! (kOnKick < 0.6 && kOffKick > 0.85 && gOffKick < 0.6)) { std::cout << "FAIL: follow-kick pump\n"; ++failures; }
     }
 
+    // ---- Tension macro: a linked move fades in along the tension curve; Tension 0 = without it
+    {
+        const double spb = model.samplesPerBeat (sr);
+        auto change = [&] (const RenderResult& r, double b0, double b1, float tension)
+        {
+            double d = 0;
+            for (auto p = (juce::int64) (b0 * spb); p < (juce::int64) (b1 * spb); ++p)
+                d += std::abs (r.tensionAt (RenderResult::Layer::mix, 0, p, tension) - clip->audio.getSample (0, (int) p));
+            return d / ((b1 - b0) * spb);
+        };
+        DropModel m = model;   // zone: beats 16..28
+        Move ch = defaultMove (MoveType::Chops);
+        ch.knob = 1.0f;
+        m.moves = { ch };
+        auto plain = renderDrop (m, analysis, 1);
+        m.moves[0].tensionLink = true;
+        m.tension.curve = curveLinear;
+        auto linked = renderDrop (m, analysis, 1);
+        const double pStart = change (*plain, 16.0, 17.0, 1.0f), pEnd = change (*plain, 27.0, 28.0, 1.0f);
+        const double lStart = change (*linked, 16.0, 17.0, 1.0f), lEnd = change (*linked, 27.0, 28.0, 1.0f);
+        double lZero = 0;   // at Tension 0 the output is exactly the render without the linked move
+        for (auto p = (juce::int64) (16.0 * spb); p < (juce::int64) (28.0 * spb); ++p)
+            lZero += std::abs (linked->tensionAt (RenderResult::Layer::mix, 0, p, 0.0f) - linked->base->mixAt (0, p));
+        std::cout << "tension: chops change start/end unlinked " << juce::String (pStart, 4) << "/" << juce::String (pEnd, 4)
+                  << ", linked " << juce::String (lStart, 4) << "/" << juce::String (lEnd, 4) << ", linked at Tension 0: " << lZero << "\n";
+        if (linked->base == nullptr || plain->base != nullptr) { std::cout << "FAIL: tension base render\n"; ++failures; }
+        if (! (lStart < pStart * 0.2 && lEnd > pEnd * 0.8 && lZero < 1.0e-6)) { std::cout << "FAIL: tension macro\n"; ++failures; }
+        Move t = ch; t.tensionLink = true;
+        if (! (Move::fromTree (t.toTree()) == t)) { std::cout << "FAIL: tension link round trip\n"; ++failures; }
+    }
+
     // ---- curve shapes: a riser with "Late Rush" keeps its energy for the very end
     {
         auto riserWith = [&] (int curve)

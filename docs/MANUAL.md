@@ -90,6 +90,14 @@ Click the **TIMELINE** tab above the waveform to see **one colored lane per move
 - Timed moves show a **TIMED** tag in the stack. Clicking a lane selects that move, so its card is ready to tweak.
 - Timing is stored relative to the drop, so moving the drop takes your timed moves with it. It's saved in presets and in your project.
 
+## The Tension macro
+
+**Tension** brings several moves in together, like one big "build it up" knob.
+
+- **Link moves to it:** open a move's drop-down in the stack and choose **Link to Tension** (linked moves show a yellow **TENSION** badge), or click the yellow **TENSION** lane at the top of the TIMELINE and choose **Link All Moves**.
+- **The tension curve** (drawn in the TENSION lane) sets how linked moves come in across the build: pick a shape from the lane's menu, or **Custom - Draw It...**.
+- **The Tension knob** sets how much of the linked moves you hear, live: drag the TENSION lane up or down, or **automate the "Tension" parameter in Cubase** to ride the whole build with one lane. At 0% the linked moves are gone; at 100% they're fully in. (**Build Amount** still blends the whole thing against your original audio.)
+
 # Drop Moves & Effects (the Cards)
 
 Each card controls one kind of move. The **green power button** turns that move on or off; if the move isn't in the stack yet, it gets added. Dimmed cards are off. **Click a card's title** for its variations and to add or remove it. Knobs: drag up and down (hold **Shift** for fine control), double-click to reset, or use the mouse wheel. Click a value box (like **1/2** or **–12**) for a list, or scroll over it.

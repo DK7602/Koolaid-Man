@@ -22,6 +22,7 @@ struct EditState
     std::array<km::Move, km::numMoveTypes> templates;
     double zoneStart = 0.0, zoneEnd = 0.0;
     float sens808 = 0.55f, sensHats = 0.55f;
+    km::Move tension;
     juce::String presetName;
     bool presetDirty = false;
 
@@ -133,6 +134,8 @@ public:
     void switchAB (int slot);      // 0 = A, 1 = B
     void copyABToOther();          // copy the current version into the other slot
     float getBuildAmount() const { return buildParam->get() / 100.0f; }
+    float getTension() const { return tensionParam->get() / 100.0f; }
+    void setTension (float v01, bool gestureStart, bool gestureEnd);
 
 private:
     void handleAsyncUpdate() override;
@@ -193,7 +196,8 @@ private:
     juce::AudioParameterFloat* outputParam = nullptr;
     juce::AudioParameterBool* syncParam = nullptr;
     juce::AudioParameterFloat* buildParam = nullptr;
-    float lastBuild = 1.0f, lastGain = 1.0f;
+    juce::AudioParameterFloat* tensionParam = nullptr;
+    float lastBuild = 1.0f, lastGain = 1.0f, lastTension = 1.0f;
     double captureNextPpq = 0.0;
 
     std::vector<EditState> undoStack, redoStack;

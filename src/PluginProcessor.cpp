@@ -62,6 +62,9 @@ KoolaidProcessor::KoolaidProcessor()
     addParameter (buildParam = new juce::AudioParameterFloat (juce::ParameterID { "buildAmount", 1 }, "Build Amount",
                                                               juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
                                                               juce::AudioParameterFloatAttributes().withLabel ("%")));
+    addParameter (tensionParam = new juce::AudioParameterFloat (juce::ParameterID { "tension", 1 }, "Tension",
+                                                                juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
+                                                                juce::AudioParameterFloatAttributes().withLabel ("%")));
 
     formatManager.registerBasicFormats();
 
@@ -250,11 +253,17 @@ void KoolaidProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mid
     const float amountTarget = original ? 0.0f : buildParam->get() / 100.0f;
     const float amount0 = lastBuild;
     lastBuild = amountTarget;
+    // Tension: blend between the render without the linked moves (0) and the full render (1)
+    const float tensionTarget = tensionParam->get() / 100.0f;
+    const float tension0 = lastTension;
+    lastTension = tensionTarget;
     auto sampleAt = [&] (int ch, juce::int64 p, int i) -> float
     {
-        const float a = amount0 + (amountTarget - amount0) * (float) i / (float) juce::jmax (1, numSamples);
+        const float f = (float) i / (float) juce::jmax (1, numSamples);
+        const float a = amount0 + (amountTarget - amount0) * f;
+        const float tn = tension0 + (tensionTarget - tension0) * f;
         const float o = p < origLen ? orig.getSample (juce::jmin (ch, orig.getNumChannels() - 1), (int) p) : 0.0f;
-        return o + (r->mixAt (ch, p) - o) * a;
+        return o + (r->tensionAt (km::RenderResult::Layer::mix, ch, p, tn) - o) * a;
     };
 
     if (syncNow)
@@ -696,7 +705,7 @@ juce::Array<juce::File> KoolaidProcessor::exportAudio (juce::String& error)
     using Layer = km::RenderResult::Layer;
     auto section = [&] (Layer layer)
     {
-        auto out = r->copyOf (layer, a, b);
+        auto out = r->copyOf (layer, a, b, tensionParam->get() / 100.0f);
         if (amount < 0.999f)
             for (int ch = 0; ch < 2; ++ch)
                 for (int i = 0; i < out.getNumSamples(); ++i)
@@ -791,6 +800,13 @@ void KoolaidProcessor::getStateInformation (juce::MemoryBlock& destData)
     t.setProperty ("previewLevel", outputParam->get(), nullptr);
     t.setProperty ("syncPreview", syncParam->get(), nullptr);
     t.setProperty ("buildAmount", buildParam->get(), nullptr);
+    t.setProperty ("tensionAmount", tensionParam->get(), nullptr);
+    {
+        auto tt = model.tension.toTree();
+        juce::ValueTree tn ("TENSION");
+        tn.appendChild (tt, nullptr);
+        t.appendChild (tn, nullptr);
+    }
     t.setProperty ("abActive", abActive, nullptr);
     const int other = 1 - abActive;
     if (abUsed[other])
@@ -859,6 +875,9 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
     *outputParam = (float) t.getProperty ("previewLevel", 0.0f);
     *syncParam = (bool) t.getProperty ("syncPreview", true);
     *buildParam = (float) t.getProperty ("buildAmount", 100.0f);
+    *tensionParam = (float) t.getProperty ("tensionAmount", 100.0f);
+    if (auto tn = t.getChildWithName ("TENSION"); tn.isValid() && tn.getNumChildren() > 0)
+        model.tension = Move::fromTree (tn.getChild (0));
 
     model.moves = movesFromTree (t.getChildWithName ("MOVES"));
     if (auto tmpl = t.getChildWithName ("TEMPLATES"); tmpl.isValid())
@@ -915,6 +934,13 @@ void KoolaidProcessor::setStateInformation (const void* data, int sizeInBytes)
 }
 
 //==============================================================================
+void KoolaidProcessor::setTension (float v, bool gestureStart, bool gestureEnd)
+{
+    if (gestureStart) tensionParam->beginChangeGesture();
+    tensionParam->setValueNotifyingHost (tensionParam->convertTo0to1 (juce::jlimit (0.0f, 1.0f, v) * 100.0f));
+    if (gestureEnd) tensionParam->endChangeGesture();
+}
+
 juce::MemoryBlock KoolaidProcessor::encodedAudio (const SourcePtr& src)
 {
     const juce::ScopedLock sl (flacLock);
@@ -933,7 +959,7 @@ juce::MemoryBlock KoolaidProcessor::encodedAudio (const SourcePtr& src)
 bool EditState::sameEdit (const EditState& o) const
 {
     if (moves.size() != o.moves.size() || zoneStart != o.zoneStart || zoneEnd != o.zoneEnd
-        || sens808 != o.sens808 || sensHats != o.sensHats)
+        || sens808 != o.sens808 || sensHats != o.sensHats || ! (tension == o.tension))
         return false;
     for (size_t i = 0; i < moves.size(); ++i)
         if (! (moves[i] == o.moves[i])) return false;
@@ -951,6 +977,7 @@ EditState KoolaidProcessor::captureEdit() const
     e.zoneEnd = model.zoneEnd;
     e.sens808 = model.sens808;
     e.sensHats = model.sensHats;
+    e.tension = model.tension;
     e.presetName = settings.presetName;
     e.presetDirty = settings.presetDirty;
     return e;
@@ -965,6 +992,7 @@ void KoolaidProcessor::restoreEdit (const EditState& e)
     model.zoneEnd = e.zoneEnd;
     model.sens808 = e.sens808;
     model.sensHats = e.sensHats;
+    model.tension = e.tension;
     settings.presetName = e.presetName;
     settings.presetDirty = e.presetDirty;
     modelChanged (false);

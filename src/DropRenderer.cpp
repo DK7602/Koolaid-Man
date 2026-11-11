@@ -105,49 +105,73 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     {
         if (! m.enabled || playsAfterDrop (m.type))
             continue;
+
+        // Tension: a linked move fades in along the tension curve across the build
+        std::unique_ptr<juce::AudioBuffer<float>> preMain, preFx;
+        if (m.tensionLink)
+        {
+            preMain = std::make_unique<juce::AudioBuffer<float>> (main);
+            preFx = std::make_unique<juce::AudioBuffer<float>> (fx);
+        }
+
         if (! m.customRegion)
-        {
             applyMove (m, ctx, main, fx);
-            continue;
-        }
-        // Timeline: run the move on its own slice of the build, then crossfade it in and out
-        const double zoneBeats = n / spb;
-        const int s0 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionStart) * spb);
-        const int s1 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionEnd) * spb);
-        const int len = s1 - s0;
-        if (len < 64)
-            continue;
-        juce::AudioBuffer<float> sm (2, len), sf (2, len);
-        for (int ch = 0; ch < 2; ++ch)
+        else
         {
-            sm.copyFrom (ch, 0, main, ch, s0, len);
-            sf.copyFrom (ch, 0, fx, ch, s0, len);
-        }
-        const juce::AudioBuffer<float> beforeMain (sm), beforeFx (sf);
-        MoveContext sc = ctx;
-        sc.zoneStartInClip = ctx.zoneStartInClip + s0;
-        sc.lengthOverride = len / spb;
-        applyMove (m, sc, sm, sf);
-        const int xf = juce::jmin (len / 4, (int) (0.005 * sr) + 1);
-        for (int ch = 0; ch < 2; ++ch)
-        {
-            for (int i = 0; i < xf; ++i)
+            // Timeline: run the move on its own slice of the build, then crossfade it in and out
+            const double zoneBeats = n / spb;
+            const int s0 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionStart) * spb);
+            const int s1 = (int) std::llround (juce::jlimit (0.0, zoneBeats, zoneBeats + m.regionEnd) * spb);
+            const int len = s1 - s0;
+            if (len >= 64)
             {
-                const float a = (float) i / xf;
-                if (s0 > 0)
+                juce::AudioBuffer<float> sm (2, len), sf (2, len);
+                for (int ch = 0; ch < 2; ++ch)
                 {
-                    sm.setSample (ch, i, beforeMain.getSample (ch, i) * (1.0f - a) + sm.getSample (ch, i) * a);
-                    sf.setSample (ch, i, beforeFx.getSample (ch, i) * (1.0f - a) + sf.getSample (ch, i) * a);
+                    sm.copyFrom (ch, 0, main, ch, s0, len);
+                    sf.copyFrom (ch, 0, fx, ch, s0, len);
                 }
-                if (s1 < n)
+                const juce::AudioBuffer<float> beforeMain (sm), beforeFx (sf);
+                MoveContext sc = ctx;
+                sc.zoneStartInClip = ctx.zoneStartInClip + s0;
+                sc.lengthOverride = len / spb;
+                applyMove (m, sc, sm, sf);
+                const int xf = juce::jmin (len / 4, (int) (0.005 * sr) + 1);
+                for (int ch = 0; ch < 2; ++ch)
                 {
-                    const int k = len - 1 - i;
-                    sm.setSample (ch, k, beforeMain.getSample (ch, k) * (1.0f - a) + sm.getSample (ch, k) * a);
-                    sf.setSample (ch, k, beforeFx.getSample (ch, k) * (1.0f - a) + sf.getSample (ch, k) * a);
+                    for (int i = 0; i < xf; ++i)
+                    {
+                        const float a = (float) i / xf;
+                        if (s0 > 0)
+                        {
+                            sm.setSample (ch, i, beforeMain.getSample (ch, i) * (1.0f - a) + sm.getSample (ch, i) * a);
+                            sf.setSample (ch, i, beforeFx.getSample (ch, i) * (1.0f - a) + sf.getSample (ch, i) * a);
+                        }
+                        if (s1 < n)
+                        {
+                            const int k = len - 1 - i;
+                            sm.setSample (ch, k, beforeMain.getSample (ch, k) * (1.0f - a) + sm.getSample (ch, k) * a);
+                            sf.setSample (ch, k, beforeFx.getSample (ch, k) * (1.0f - a) + sf.getSample (ch, k) * a);
+                        }
+                    }
+                    main.copyFrom (ch, s0, sm, ch, 0, len);
+                    fx.copyFrom (ch, s0, sf, ch, 0, len);
                 }
             }
-            main.copyFrom (ch, s0, sm, ch, 0, len);
-            fx.copyFrom (ch, s0, sf, ch, 0, len);
+        }
+
+        if (m.tensionLink)
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                const float w = (float) shapeCurve (model.tension, (double) i / n, 1.0);
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    const float pm = preMain->getSample (ch, i), pf = preFx->getSample (ch, i);
+                    main.setSample (ch, i, pm + (main.getSample (ch, i) - pm) * w);
+                    fx.setSample (ch, i, pf + (fx.getSample (ch, i) - pf) * w);
+                }
+            }
         }
     }
 
@@ -279,6 +303,14 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         applyGain (res->mix, n, gain);
         applyGain (res->fx, n, gain);
         applyGain (res->music, n, gain);
+    }
+
+    // the same build without the Tension-linked moves, for the live Tension knob
+    if (model.anyTensionLinks())
+    {
+        DropModel b = model;
+        b.moves.erase (std::remove_if (b.moves.begin(), b.moves.end(), [] (const Move& m) { return m.tensionLink; }), b.moves.end());
+        res->base = renderDrop (b, analysis, version);
     }
     return res;
 }

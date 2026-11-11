@@ -71,6 +71,9 @@ struct Move
     bool customRegion = false;
     double regionStart = -4.0, regionEnd = 0.0;
 
+    // Linked to the Tension macro: fades in along the tension curve and follows the Tension knob
+    bool tensionLink = false;
+
     // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
     int curve = 0;
     std::array<float, 16> curvePoints { 0.0f, 0.0667f, 0.1333f, 0.2f, 0.2667f, 0.3333f, 0.4f, 0.4667f,
@@ -169,6 +172,10 @@ struct DropModel
 
     float sens808 = 0.55f, sensHats = 0.55f, sensSnare = 0.55f;
     int keyMode = -1;            // -1 auto (detected), -2 off (don't tune), 0..23 = tonic + 12 * minor
+
+    // Tension macro: how linked moves come in across the build (curve over the zone)
+    Move tension = [] { Move t; t.curve = curveS; return t; }();   // only curve / curvePoints are used
+    bool anyTensionLinks() const { for (auto& m : moves) if (m.enabled && m.tensionLink) return true; return false; }
 
     /** The key used for tuning, or found == false when tuning is off / unknown. */
     KeyInfo effectiveKey (const KeyInfo& detected) const
