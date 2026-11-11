@@ -146,7 +146,7 @@ A crash cymbal played backwards, so it swells right into the downbeat. Types: **
 
 ## Sidechain Pump
 
-Ducks the build in time with the beat, like a kick-triggered sidechain compressor. **Depth** sets how hard it ducks, **Rate** sets how often. Types: **Smooth**, **Hard** and **Rising** (starts gentle and gets deeper toward the drop).
+Ducks the build in time with the beat, like a kick-triggered sidechain compressor. **Depth** sets how hard it ducks, **Rate** sets how often. Types: **Smooth**, **Hard**, **Rising** (starts gentle and gets deeper toward the drop) and **Follow Kick**, which ducks every time *your* kick or 808 hits (found by Detection), so the pump breathes with the real groove instead of a fixed grid. With Follow Kick, **Rate** sets how long it takes to recover.
 
 ## Drop Gap
 

@@ -99,7 +99,7 @@ juce::StringArray modeNames (MoveType t)
         case MoveType::Atmos:     return atmosTypeNames();
         case MoveType::Riser:     return { "Noise Sweep", "Uplifter", "Snare Wash" };
         case MoveType::RevCrash:  return { "Crash", "Splash", "Dark Wash" };
-        case MoveType::Pump:      return { "Smooth", "Hard", "Rising" };
+        case MoveType::Pump:      return { "Smooth", "Hard", "Rising", "Follow Kick" };
         case MoveType::Gap:       return { "Silence", "Low-pass", "High-pass" };
         case MoveType::Impact:    return { "Hit + Crash", "Hit Only", "Crash + Downlifter" };
         case MoveType::Boom:      return { "Deep", "Punchy", "Long Dive" };

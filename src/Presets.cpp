@@ -180,7 +180,7 @@ std::vector<Move> rollMoves (juce::Random& rng, bool haveDrums)
             case T::Hats:      add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 2 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
             case T::Stutter:   add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 1, 2 }); m.division = pick ({ 1, 2, 2, 3 }); m.knob = 0.3f + 0.45f * rng.nextFloat(); }); break;
             case T::Riser:     add (t, [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 6, 7, 7, 8 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
-            case T::Pump:      add (t, [&] (Move& m) { m.mode = pick ({ 0, 0, 1, 2 }); m.division = pick ({ 4, 4, 3 }); m.knob = 0.4f + 0.45f * rng.nextFloat(); }); break;
+            case T::Pump:      add (t, [&] (Move& m) { m.mode = haveDrums ? pick ({ 3, 3, 0, 1, 2 }) : pick ({ 0, 0, 1, 2 }); m.division = pick ({ 4, 4, 3 }); m.knob = 0.4f + 0.45f * rng.nextFloat(); }); break;
             case T::RevCrash:  add (t, [&] (Move& m) { m.mode = pick ({ 0, 1, 2 }); m.division = pick ({ 5, 6, 6, 7 }); m.knob = 0.45f + 0.4f * rng.nextFloat(); }); break;
             default: break;
         }

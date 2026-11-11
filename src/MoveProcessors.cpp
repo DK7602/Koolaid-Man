@@ -1012,12 +1012,30 @@ namespace
         const double stepBeats = juce::jmax (0.125, divisionToBeats (m.division, c.beatsPerBar));
         const float depth = 0.92f * m.knob;
         const float smooth = 1.0f - std::exp (-1.0f / (float) (0.0015 * c.sampleRate));
+
+        // Follow Kick: duck from the kicks / 808s found in the audio (falls back to the grid)
+        std::vector<juce::int64> kicks;
+        if (m.mode == 3 && c.drums != nullptr)
+            for (auto s : c.drums->bass.onsets)
+                if (s >= c.zoneStartInClip - (juce::int64) (stepBeats * c.samplesPerBeat) && s < c.zoneStartInClip + n)
+                    kicks.push_back (s - c.zoneStartInClip);
+        const bool followKick = ! kicks.empty();
+        size_t nextKick = 0;
+        double sinceKick = 1.0e9;
+
         float g = 1.0f;
         for (int i = 0; i < n; ++i)
         {
             // phase on the song's beat grid, so the pump locks to the kick
             const double beatPos = (c.zoneStartInClip + i) / c.samplesPerBeat;
-            const double ph = std::fmod (beatPos / stepBeats, 1.0);
+            double ph = std::fmod (beatPos / stepBeats, 1.0);
+            if (followKick)
+            {
+                while (nextKick < kicks.size() && kicks[nextKick] <= i)
+                    sinceKick = (double) (i - kicks[nextKick++]);
+                sinceKick += 1.0;
+                ph = juce::jmin (1.0, sinceKick / (stepBeats * c.samplesPerBeat));   // Rate = recovery time
+            }
             double duck;
             if (m.mode == 1) duck = ph < 0.3 ? 1.0 : std::exp (-(ph - 0.3) * 16.0);
             else             duck = std::exp (-ph * 5.0);

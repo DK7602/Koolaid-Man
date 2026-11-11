@@ -330,6 +330,32 @@ int main (int argc, char** argv)
         if (! (back == t)) { std::cout << "FAIL: timeline region round trip\n"; ++failures; }
     }
 
+    // ---- Sidechain Pump "Follow Kick" ducks on the detected kicks (beats 1 and 3 here), not on every beat
+    {
+        const double spb = model.samplesPerBeat (sr);
+        auto duckAt = [&] (const RenderResult& r, double beat)
+        {
+            const int a = (int) ((beat + 0.03) * spb), len = (int) (0.12 * spb);
+            double o = 0, in = 0;
+            for (int i = a; i < a + len; ++i) { o += std::abs (r.mixAt (0, i)); in += std::abs (clip->audio.getSample (0, i)); }
+            return o / juce::jmax (1.0e-9, in);
+        };
+        auto pumpOn = [&] (int mode)
+        {
+            DropModel m = model;
+            Move p = defaultMove (MoveType::Pump);
+            p.mode = mode; p.knob = 0.8f;
+            m.moves = { p };
+            return renderDrop (m, analysis, 1);
+        };
+        auto kick = pumpOn (3), grid = pumpOn (0);
+        const double kOnKick = duckAt (*kick, 20.0), kOffKick = duckAt (*kick, 21.0);
+        const double gOnKick = duckAt (*grid, 20.0), gOffKick = duckAt (*grid, 21.0);
+        std::cout << "pump follow-kick: level after kick " << juce::String (kOnKick, 2) << ", after snare " << juce::String (kOffKick, 2)
+                  << "  (grid pump: " << juce::String (gOnKick, 2) << " / " << juce::String (gOffKick, 2) << ")\n";
+        if (! (kOnKick < 0.6 && kOffKick > 0.85 && gOffKick < 0.6)) { std::cout << "FAIL: follow-kick pump\n"; ++failures; }
+    }
+
     // ---- key detection on chord progressions in known keys
     {
         struct Case { const char* name; int tonic; bool minor; std::vector<std::vector<int>> chords; };
