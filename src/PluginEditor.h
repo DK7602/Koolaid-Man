@@ -6,6 +6,7 @@
 #include "MoveStackView.h"
 #include "EffectCards.h"
 #include "ManualView.h"
+#include "GridEditor.h"
 
 class KoolaidEditor : public juce::AudioProcessorEditor,
                       public juce::FileDragAndDropTarget,
@@ -30,6 +31,10 @@ public:
     void scrollManualForSnapshot (int section) { manual.scrollToSection (section); }
     void showCardPage (int p) { if (cards) cards->setPage (p); }
     void showTab (int t) { setTab (t); }
+    void showCurveEditorForSnapshot()
+    {
+        for (auto& m : proc.getModel().moves) if (km::moveHasRamp (m)) { editCurve (m.uid); return; }
+    }
 
 private:
     /** Paints the artwork; hosts every control in design coordinates. */
@@ -181,6 +186,8 @@ private:
     Btn manualHotspot { { 22, 262, 106, 46 }, 8.0f };
     Btn mascotBtn { { 96, 10, 336, 238 }, 30.0f };
     ManualView manual;
+    GridEditor gridEditor;
+    void editCurve (int uid);
     Bubble bubble;
     std::unique_ptr<juce::FileChooser> chooser;
 

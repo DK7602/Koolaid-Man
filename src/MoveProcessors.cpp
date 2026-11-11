@@ -507,7 +507,7 @@ namespace
         const double p = juce::jmap ((double) m.knob, 0.35, 3.2);
         const double target = m.semitones;
         const bool ramp = m.mode == 0;
-        pitchShiftHQ (b, c.sampleRate, [&] (int i) { return ramp ? target * curve ((double) i / n, p) : target; });
+        pitchShiftHQ (b, c.sampleRate, [&] (int i) { return ramp ? target * (m.curve == 0 ? curve ((double) i / n, p) : shapeCurve (m, (double) i / n, 1.0)) : target; });
     }
 
     void doTapeStop (const Move& m, const MoveContext& c, Buffer& b)
@@ -586,7 +586,7 @@ namespace
             {
                 if ((i & 31) == 0)
                 {
-                    const double t = std::pow (juce::jlimit (0.0, 1.0, (s0 + i * 0.5 - lat) / (double) n), 1.35);
+                    const double t = shapeCurve (m, (s0 + i * 0.5 - lat) / (double) n, 1.35);
                     double hz = fc;
                     switch (m.mode)
                     {
@@ -686,7 +686,7 @@ namespace
                 {
                     const double t = (bt - startBeat) / regionBeats;
                     const int pos = (int) std::llround (bt * c.samplesPerBeat);
-                    const float vel = (float) (0.5 + 0.5 * t);
+                    const float vel = (float) (0.5 + 0.5 * shapeCurve (m, t, 1.0));
                     const double rate = std::pow (2.0, (4.0 * t) / 12.0);
                     addHit (fx, hit, pos, level * vel, rate, (int) (stepBeats * c.samplesPerBeat));
                 }
@@ -702,7 +702,7 @@ namespace
                 const double t = (bt - startBeat) / regionBeats;
                 const double step = (endBeat - bt) <= 1.0 + 1.0e-6 ? 0.125 : 0.25;
                 const int pos = (int) std::llround (bt * c.samplesPerBeat);
-                addHit (fx, hit, pos, level * (float) (0.25 + 0.75 * t * t), std::pow (2.0, 7.0 * t / 12.0),
+                addHit (fx, hit, pos, level * (float) (0.25 + 0.75 * shapeCurve (m, t, 2.0)), std::pow (2.0, 7.0 * t / 12.0),
                         (int) (step * c.samplesPerBeat));
                 bt += step;
             }
@@ -735,9 +735,9 @@ namespace
             const double t = (double) i / L;
             double freq = f0;
             float amp = 1.0f;
-            if (m.mode == 0)      freq = f0 * std::pow (2.0, -12.0 * std::pow (t, 1.6) / 12.0);
-            else if (m.mode == 1) freq = f0 * std::pow (2.0, (-12.0 + 12.0 * std::pow (t, 0.8)) / 12.0);
-            else                  amp = (float) std::pow (t, 2.2);
+            if (m.mode == 0)      freq = f0 * std::pow (2.0, -12.0 * shapeCurve (m, t, 1.6) / 12.0);
+            else if (m.mode == 1) freq = f0 * std::pow (2.0, (-12.0 + 12.0 * shapeCurve (m, t, 0.8)) / 12.0);
+            else                  amp = (float) shapeCurve (m, t, 2.2);
             if (i < atk) amp *= (float) i / atk;
             if (i > L - rel) amp *= (float) (L - i) / rel;
             phase += freq / c.sampleRate;
@@ -780,7 +780,7 @@ namespace
             for (double bt = std::ceil (startBeat) + 0.5; bt < totalBeats; bt += 1.0)
             {
                 const double t = (bt - startBeat) / regionBeats;
-                addHit (fx, hit, (int) std::llround (bt * c.samplesPerBeat), level * (float) (0.5 + 0.5 * t), 1.0,
+                addHit (fx, hit, (int) std::llround (bt * c.samplesPerBeat), level * (float) (0.5 + 0.5 * shapeCurve (m, t, 1.0)), 1.0,
                         (int) (0.5 * c.samplesPerBeat));
                 if (totalBeats - bt <= c.beatsPerBar)
                     addHit (fx, hit, (int) std::llround ((bt + 0.25) * c.samplesPerBeat), level * 0.6f, 1.0,
@@ -798,7 +798,7 @@ namespace
             const double inBeat = std::fmod (bt, 1.0);
             const float accent = inBeat < 0.01 ? 1.0f : 0.68f;
             const float pan = (idx % 2 == 0) ? -0.2f : 0.2f;
-            addHit (fx, hit, (int) std::llround (bt * c.samplesPerBeat), level * accent * (float) (0.55 + 0.45 * t),
+            addHit (fx, hit, (int) std::llround (bt * c.samplesPerBeat), level * accent * (float) (0.55 + 0.45 * shapeCurve (m, t, 1.0)),
                     1.0, (int) (step * c.samplesPerBeat), pan);
             bt += step;
         }
@@ -841,7 +841,7 @@ namespace
         const float mix = (float) (m.knob2 * 1.1 * c.refRms / wetRms);
         for (int i = 0; i < n; ++i)
         {
-            const float ramp = (float) curve ((double) i / n, 1.4);
+            const float ramp = (float) shapeCurve (m, (double) i / n, 1.4);
             fx.addSample (0, i, wet.getSample (0, i) * mix * ramp);
             fx.addSample (1, i, wet.getSample (1, i) * mix * ramp);
         }
@@ -851,7 +851,7 @@ namespace
         {
             auto* d = main.getWritePointer (ch);
             for (int i = 0; i < n; ++i)
-                d[i] *= 1.0f - duck * (float) curve ((double) i / n, 1.4);
+                d[i] *= 1.0f - duck * (float) shapeCurve (m, (double) i / n, 1.4);
         }
     }
 
@@ -983,7 +983,7 @@ namespace
                     v = b * 2.0f * (float) std::exp (-ph / tau);
                 }
                 v = hp.processSingleSampleRaw (v);
-                const float env = (float) std::pow (t, 1.6);
+                const float env = (float) shapeCurve (m, t, 1.6);
                 const int tail = juce::jmin (L / 8, (int) (0.003 * sr) + 1);
                 d[i] = v * env * (i > L - tail ? (float) (L - i) / tail : 1.0f);
             }
@@ -1040,7 +1040,7 @@ namespace
             if (m.mode == 1) duck = ph < 0.3 ? 1.0 : std::exp (-(ph - 0.3) * 16.0);
             else             duck = std::exp (-ph * 5.0);
             float d = depth;
-            if (m.mode == 2) d *= (float) std::pow ((double) i / n, 1.2);
+            if (m.mode == 2) d *= (float) shapeCurve (m, (double) i / n, 1.2);
             const float target = 1.0f - d * (float) duck;
             g += (target - g) * smooth;
             for (int ch = 0; ch < main.getNumChannels(); ++ch)

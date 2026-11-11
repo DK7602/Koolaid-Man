@@ -95,7 +95,8 @@ target_sources(KoolaidMan PRIVATE
     src/WaveformView.cpp
     src/MoveStackView.cpp
     src/EffectCards.cpp
-    src/ManualView.cpp)
+    src/ManualView.cpp
+    src/GridEditor.cpp)
 
 target_include_directories(KoolaidMan PRIVATE src)
 
@@ -141,7 +142,8 @@ if(KOOLAID_BUILD_TESTS)
         src/WaveformView.cpp
         src/MoveStackView.cpp
         src/EffectCards.cpp
-        src/ManualView.cpp)
+        src/ManualView.cpp
+        src/GridEditor.cpp)
 
     foreach(tool KoolaidSnapshot KoolaidHostTest)
         juce_add_gui_app(${tool} PRODUCT_NAME "${tool}")

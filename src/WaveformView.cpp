@@ -689,6 +689,21 @@ void WaveformView::drawLanes (juce::Graphics& g)
             g.setColour (sel ? juce::Colours::white : juce::Colours::white.withAlpha (0.5f));
             g.drawRoundedRectangle (bar.expanded (1.0f), 5.0f, sel ? 1.8f : 1.0f);
         }
+        // the move's ramp, drawn inside its lane
+        if (km::moveHasRamp (mv) && bar.getWidth() > 24.0f)
+        {
+            juce::Path p;
+            const int steps = juce::jmax (8, (int) (bar.getWidth() / 3.0f));
+            for (int k = 0; k <= steps; ++k)
+            {
+                const double t = (double) k / steps;
+                const juce::Point<float> pt (bar.getX() + (float) t * bar.getWidth(),
+                                             bar.getBottom() - 2.0f - (float) km::shapeCurve (mv, t, 1.4) * (bar.getHeight() - 4.0f));
+                if (k == 0) p.startNewSubPath (pt); else p.lineTo (pt);
+            }
+            g.setColour (juce::Colours::white.withAlpha (mv.customRegion ? 0.55f : 0.4f));
+            g.strokePath (p, juce::PathStrokeType (1.4f));
+        }
         juce::String label = juce::String (km::typeName (mv.type));
         if (! mv.customRegion) label << "  (auto)";
         const auto textCol = mv.customRegion ? juce::Colours::white : (Skin::get().getTheme() == skin::Theme::light ? col::text : juce::Colours::white);

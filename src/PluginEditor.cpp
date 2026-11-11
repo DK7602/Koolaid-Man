@@ -171,6 +171,8 @@ KoolaidEditor::KoolaidEditor (KoolaidProcessor& p) : AudioProcessorEditor (p), p
     manualHotspot.setTooltip ("Open the Koolaid Man manual");
     manualHotspot.onClick = [this] { openManual(); };
     root.addChildComponent (manual);
+    root.addChildComponent (gridEditor);
+    stack.onEditCurve = [this] (int uid) { editCurve (uid); };
 
     //------------------------------------------------------------------ header steps
     step1.setTooltip ("1. DRAG IN AUDIO - load the bars before your drop, or capture them from your track");
@@ -779,6 +781,32 @@ void KoolaidEditor::changeListenerCallback (juce::ChangeBroadcaster*)
     manual.themeChanged();
     refreshAll();
     root.repaint();
+}
+
+void KoolaidEditor::editCurve (int uid)
+{
+    auto* mv = [this, uid]() -> km::Move*
+    {
+        for (auto& m : proc.getModel().moves) if (m.uid == uid) return &m;
+        return nullptr;
+    }();
+    if (mv == nullptr) return;
+    auto start = mv->curvePoints;
+    if (mv->curve != km::curveCustom)   // start from the shape it has now
+        for (int i = 0; i < 16; ++i) start[(size_t) i] = (float) km::shapeCurve (*mv, i / 15.0, 1.4);
+    gridEditor.openCurve ("CURVE: " + mv->stackLabel().toUpperCase(), start, [this, uid] (const GridEditor::Values& v)
+    {
+        for (auto& m : proc.getModel().moves)
+            if (m.uid == uid)
+            {
+                m.curvePoints = v;
+                m.curve = km::curveCustom;
+            }
+        proc.modelChanged (true);
+        stack.refresh();
+        waveform.repaint();
+        presetName.setText (presetDisplayName());
+    });
 }
 
 void KoolaidEditor::openManual()

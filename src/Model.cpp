@@ -158,6 +158,52 @@ juce::String knobValueText (const Move& m, int which)
     return juce::String (juce::roundToInt (v * 100.0f)) + "%";
 }
 
+const juce::StringArray& curveNames()
+{
+    static const juce::StringArray names { "Auto", "Linear", "Ease In", "Ease Out", "S-Curve", "Late Rush", "Steps", "Custom" };
+    return names;
+}
+
+bool moveHasRamp (const Move& m)
+{
+    switch (m.type)
+    {
+        case MoveType::Pitch:     return m.mode == 0;
+        case MoveType::Filter:    return m.mode <= 2;
+        case MoveType::Atmos:
+        case MoveType::Riser:
+        case MoveType::Bass808:
+        case MoveType::Hats:      return true;
+        case MoveType::DrumMoves: return m.mode != 1;
+        case MoveType::Pump:      return m.mode == 2;
+        default: break;
+    }
+    return false;
+}
+
+double shapeCurve (const Move& m, double t, double autoPow)
+{
+    t = juce::jlimit (0.0, 1.0, t);
+    switch (m.curve)
+    {
+        case curveLinear:  return t;
+        case curveEaseIn:  return std::pow (t, 2.2);
+        case curveEaseOut: return 1.0 - std::pow (1.0 - t, 2.2);
+        case curveS:       return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);   // smootherstep
+        case curveLate:    return std::pow (t, 5.0);
+        case curveSteps:   return juce::jmin (1.0, std::floor (t * 4.0 + 1.0e-9) / 3.0);   // 4 steps, full on the last
+        case curveCustom:
+        {
+            const double x = t * 15.0;
+            const int i = juce::jmin (14, (int) x);
+            const double f = x - i;
+            return juce::jlimit (0.0, 1.0, (double) m.curvePoints[(size_t) i] * (1.0 - f) + (double) m.curvePoints[(size_t) i + 1] * f);
+        }
+        default: break;
+    }
+    return std::pow (t, autoPow);
+}
+
 juce::String Move::stackLabel() const
 {
     const auto& d = divisions();
@@ -265,6 +311,16 @@ juce::ValueTree Move::toTree() const
         t.setProperty ("regionStart", regionStart, nullptr);
         t.setProperty ("regionEnd", regionEnd, nullptr);
     }
+    if (curve != 0)
+    {
+        t.setProperty ("curve", curve, nullptr);
+        if (curve == curveCustom)
+        {
+            juce::StringArray pts;
+            for (auto v : curvePoints) pts.add (juce::String (v, 4));
+            t.setProperty ("curvePoints", pts.joinIntoString (" "), nullptr);
+        }
+    }
     return t;
 }
 
@@ -278,6 +334,13 @@ Move Move::fromTree (const juce::ValueTree& t)
     m.knob2     = juce::jlimit (0.0f, 1.0f, (float) t.getProperty ("knob2", m.knob2));
     m.mode      = juce::jlimit (0, juce::jmax (0, modeNames (m.type).size() - 1), (int) t.getProperty ("mode", m.mode));
     m.seed      = (juce::uint32) (int) t.getProperty ("seed", 1);
+    m.curve = juce::jlimit (0, numCurveShapes - 1, (int) t.getProperty ("curve", 0));
+    {
+        auto pts = juce::StringArray::fromTokens (t.getProperty ("curvePoints").toString(), " ", "");
+        pts.removeEmptyStrings();
+        if (pts.size() == 16)
+            for (int i = 0; i < 16; ++i) m.curvePoints[(size_t) i] = juce::jlimit (0.0f, 1.0f, pts[i].getFloatValue());
+    }
     m.customRegion = t.hasProperty ("regionStart") && t.hasProperty ("regionEnd");
     if (m.customRegion)
     {
@@ -292,7 +355,8 @@ bool Move::operator== (const Move& o) const
 {
     return type == o.type && enabled == o.enabled && division == o.division && semitones == o.semitones
         && knob == o.knob && knob2 == o.knob2 && mode == o.mode && seed == o.seed
-        && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd));
+        && customRegion == o.customRegion && (! customRegion || (regionStart == o.regionStart && regionEnd == o.regionEnd))
+        && curve == o.curve && (curve != curveCustom || curvePoints == o.curvePoints);
 }
 
 juce::String keyName (int tonic, bool minor)

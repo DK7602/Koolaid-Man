@@ -71,6 +71,11 @@ struct Move
     bool customRegion = false;
     double regionStart = -4.0, regionEnd = 0.0;
 
+    // How the move ramps over its time (see curveNames()); 0 = the move's own shape.
+    int curve = 0;
+    std::array<float, 16> curvePoints { 0.0f, 0.0667f, 0.1333f, 0.2f, 0.2667f, 0.3333f, 0.4f, 0.4667f,
+                                        0.5333f, 0.6f, 0.6667f, 0.7333f, 0.8f, 0.8667f, 0.9333f, 1.0f };   // Custom
+
     juce::String stackLabel() const;
     juce::ValueTree toTree() const;
     static Move fromTree (const juce::ValueTree&);
@@ -87,6 +92,13 @@ Move defaultMove (MoveType);
 int canonicalOrder (MoveType);                // used when Roll / power adds moves
 
 const juce::StringArray& atmosTypeNames();    // the seven reverbs
+
+enum CurveShape { curveAuto = 0, curveLinear, curveEaseIn, curveEaseOut, curveS, curveLate, curveSteps, curveCustom, numCurveShapes };
+const juce::StringArray& curveNames();
+/** Does this move ramp over time (so its curve matters)? */
+bool moveHasRamp (const Move&);
+/** The ramp value (0..1) at position t (0..1); 'autoPow' is the move's own shape (t^autoPow). */
+double shapeCurve (const Move&, double t, double autoPow);
 
 //==============================================================================
 struct ClipData

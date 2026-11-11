@@ -76,6 +76,8 @@ Everything outside the zone stays exactly as it was. Some moves (like **Reverse 
 - **Click a row** to select it. The effect cards then edit that move.
 - **+ ADD MOVE** adds any move to the bottom of the stack. **DUPLICATE** and **DELETE** act on the selected row.
 
+**Curves.** Moves that build over time (pitch rise, filter sweep, reverb wash, riser, rising pump, snare fill/roll, hat roll, 808 slide/swell) have a **Curve** in their drop-down menu: **Auto** (the move's own shape), **Linear**, **Ease In** (slow start, fast finish), **Ease Out**, **S-Curve**, **Late Rush** (almost everything in the last moments) or **Steps**. Pick **Custom - Draw It...** to draw your own curve with the mouse (presets in the editor give you a starting point; **Done** or Esc closes it). The TIMELINE draws each move's curve inside its lane.
+
 You can use the same move more than once. For example, two filters, or a short reverse plus a long one.
 
 # The Timeline

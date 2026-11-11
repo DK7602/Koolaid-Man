@@ -356,6 +356,40 @@ int main (int argc, char** argv)
         if (! (kOnKick < 0.6 && kOffKick > 0.85 && gOffKick < 0.6)) { std::cout << "FAIL: follow-kick pump\n"; ++failures; }
     }
 
+    // ---- curve shapes: a riser with "Late Rush" keeps its energy for the very end
+    {
+        auto riserWith = [&] (int curve)
+        {
+            DropModel m = model;
+            Move rz = defaultMove (MoveType::Riser);
+            rz.curve = curve;
+            m.moves = { rz };
+            auto r = renderDrop (m, analysis, 1);
+            const auto len = (r->zoneEnd - r->zoneStart);
+            const auto start = r->zoneEnd - (juce::int64) (len / 1.5);   // the riser's 2 bars ~ last part of the zone
+            double first = 0, second = 0;
+            const auto mid = (start + r->zoneEnd) / 2;
+            for (auto p = start; p < r->zoneEnd; ++p)
+            {
+                const double v = r->sampleAt (RenderResult::Layer::fx, 0, p);
+                (p < mid ? first : second) += v * v;
+            }
+            return first / juce::jmax (1.0e-12, second);
+        };
+        const double linear = riserWith (curveLinear), late = riserWith (curveLate), easeOut = riserWith (curveEaseOut);
+        std::cout << "curves: riser energy first-half/second-half: linear " << juce::String (linear, 3)
+                  << ", late rush " << juce::String (late, 3) << ", ease out " << juce::String (easeOut, 3) << "\n";
+        if (! (late < linear * 0.3 && easeOut > linear)) { std::cout << "FAIL: curve shapes don't change the ramp\n"; ++failures; }
+
+        Move cm = defaultMove (MoveType::Filter);
+        cm.curve = curveCustom;
+        for (int i = 0; i < 16; ++i) cm.curvePoints[(size_t) i] = (float) (i % 2);
+        const auto back = Move::fromTree (cm.toTree());
+        if (! (back == cm) || std::abs (shapeCurve (back, 1.0 / 15.0, 1.0) - 1.0) > 1.0e-4)
+        { std::cout << "FAIL: custom curve round trip\n"; ++failures; }
+        if (std::abs (shapeCurve (cm, 0.5 / 15.0, 1.0) - 0.5) > 1.0e-3) { std::cout << "FAIL: custom curve interpolation\n"; ++failures; }
+    }
+
     // ---- key detection on chord progressions in known keys
     {
         struct Case { const char* name; int tonic; bool minor; std::vector<std::vector<int>> chords; };

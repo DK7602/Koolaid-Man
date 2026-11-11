@@ -264,6 +264,15 @@ void MoveStackView::showRowMenu (int index)
     menu.addItem (4, "Randomize This Move");
     menu.addItem (5, m.enabled ? "Bypass" : "Enable");
     menu.addItem (7, "Reset Timing (Auto)", m.customRegion);
+    {
+        juce::PopupMenu curves;
+        const auto& names = km::curveNames();
+        for (int i = 0; i < names.size() - 1; ++i)
+            curves.addItem (200 + i, names[i], true, m.curve == i);
+        curves.addSeparator();
+        curves.addItem (200 + km::curveCustom, "Custom - Draw It...", true, m.curve == km::curveCustom);
+        menu.addSubMenu ("Curve (how it ramps)", curves, km::moveHasRamp (m));
+    }
     menu.addSeparator();
     menu.addItem (6, "Delete");
 
@@ -275,7 +284,12 @@ void MoveStackView::showRowMenu (int index)
         for (size_t i = 0; i < mv.size(); ++i) if (mv[i].uid == uid) idx = (int) i;
         if (idx < 0 || result == 0) return;
         auto& m = mv[(size_t) idx];
-        if (result >= 100) m.mode = result - 100;
+        if (result >= 200)
+        {
+            if (result - 200 == km::curveCustom) { if (onEditCurve) onEditCurve (uid); return; }
+            m.curve = result - 200;
+        }
+        else if (result >= 100) m.mode = result - 100;
         else if (result == 1 && idx > 0) std::swap (mv[(size_t) idx], mv[(size_t) idx - 1]);
         else if (result == 2 && idx + 1 < (int) mv.size()) std::swap (mv[(size_t) idx], mv[(size_t) idx + 1]);
         else if (result == 3) { auto copy = m; copy.uid = 0; mv.insert (mv.begin() + idx + 1, copy); }
