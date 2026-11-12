@@ -88,8 +88,10 @@ KoolaidProcessor::KoolaidProcessor()
     {
         {
             const juce::ScopedLock sl (resultLock);
+            latestDelivered = r;                 // for offline bounces (see processMain)
             pendingResult = std::move (r);
         }
+        resultReady.signal();
         triggerAsyncUpdate();
     };
 
@@ -320,6 +322,32 @@ void KoolaidProcessor::processMain (juce::AudioBuffer<float>& buffer)
     }
     struct ReleaseOnExit { std::atomic<const RenderResult*>& p; ~ReleaseOnExit() { p.store (nullptr); } } release { audioInUse };
 
+    // Offline bounce: there's no deadline, so never print a build older than your last edit.
+    // Wait for the render of the latest request (handed over by the render thread itself).
+    std::optional<juce::SpinLock::ScopedLockType> offlineScope;
+    if (isNonRealtime())
+    {
+        offlineScope.emplace (offlineLock);
+        const int want = requestedId.load();
+        auto newest = [this] { const juce::ScopedLock sl (resultLock); return latestDelivered; };
+        auto got = newest();
+        if (want > 0 && (got == nullptr || got->requestId < want) && offlineGaveUpOn != want)   // (nothing requested yet: nothing to wait for)
+        {
+            const auto t0 = juce::Time::getMillisecondCounter();
+            while ((got == nullptr || got->requestId < want) && juce::Time::getMillisecondCounter() - t0 < 20000)
+            {
+                resultReady.wait (20);
+                got = newest();
+            }
+            if (got == nullptr || got->requestId < want)
+                offlineGaveUpOn = want;   // something's wrong: carry on with what we have, and don't stall again
+        }
+        if (got != nullptr && (r == nullptr || got->requestId >= r->requestId))
+            offlineHold = got;
+        if (offlineHold != nullptr && (r == nullptr || offlineHold->requestId >= r->requestId))
+            r = offlineHold.get();   // owned by offlineHold for the whole block
+    }
+
     // Preview Level: ramped across the block so automation doesn't zipper
     const float gainTarget = juce::Decibels::decibelsToGain (outputParam->get());
     const float gain0 = lastGain;
@@ -423,6 +451,14 @@ void KoolaidProcessor::handleAsyncUpdate()
 
 void KoolaidProcessor::timerCallback()
 {
+    if (! isNonRealtime())
+    {
+        // back in real time: let go of the render an offline bounce was holding
+        const juce::SpinLock::ScopedTryLockType tl (offlineLock);
+        if (tl.isLocked() && offlineHold != nullptr)
+            offlineHold.reset();
+    }
+
     const auto now = juce::Time::getMillisecondCounter();
     const auto* inUse = audioInUse.load();
     retired.erase (std::remove_if (retired.begin(), retired.end(),
@@ -456,6 +492,7 @@ void KoolaidProcessor::requestRender()
 {
     renderPending.store (true);
     renderThread.request (model, ++lastRequestId);
+    requestedId.store (lastRequestId);
 }
 
 void KoolaidProcessor::modelChanged (bool markPresetDirty)

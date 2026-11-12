@@ -528,6 +528,55 @@ public:
             q.releaseResources();
         }
 
+        // ---- offline bounce right after a tweak: prints the NEW build, not the previous one
+        {
+            KoolaidProcessor q;
+            juce::MemoryBlock good;
+            p.getStateInformation (good);
+            q.setStateInformation (good.getData(), (int) good.getSize());
+            q.setPlayConfigDetails (2, 2, 48000.0, 512);
+            q.prepareToPlay (48000.0, 512);
+            waitForRender (q);
+            // the tweak: a one-bar silent Drop Gap, then export at once (no time to re-render)
+            auto gap = km::defaultMove (km::MoveType::Gap);
+            gap.mode = 0; gap.division = 6; gap.knob = 1.0f;
+            q.getModel().moves = { gap };
+            q.modelChanged (true);
+            q.setNonRealtime (true);
+            FakePlayHead oph;
+            q.setPlayHead (&oph);
+            const double spbO = 48000.0 * 60.0 / 130.0;
+            const double barStartPpq = (q.getModel().clipStartBar - 1) * 4.0 + q.getModel().zoneEnd - 4.0;
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer mb;
+            double peak = 0.0;
+            const auto t0 = juce::Time::getMillisecondCounterHiRes();
+            const int blocks = (int) (4.0 * spbO / 512.0) - 2;
+            for (int k = 0; k < blocks; ++k)
+            {
+                oph.set (barStartPpq + (k * 512.0 + 2400.0) / spbO, true);   // from 50 ms into the last bar
+                b.clear();
+                q.processBlock (b, mb);
+                peak = juce::jmax (peak, (double) b.getMagnitude (0, 512));
+            }
+            const double waited = juce::Time::getMillisecondCounterHiRes() - t0;
+            check (peak < 1.0e-3, "offline bounce straight after a tweak prints the new build (gap peak " + juce::String (peak, 5)
+                                      + ", waited " + juce::String (waited, 0) + " ms for the render)");
+            q.setNonRealtime (false);
+            q.setPlayHead (nullptr);
+            q.releaseResources();
+
+            // and an empty instance never stalls an offline bounce
+            KoolaidProcessor e;
+            e.setPlayConfigDetails (2, 2, 48000.0, 512);
+            e.prepareToPlay (48000.0, 512);
+            e.setNonRealtime (true);
+            const auto t1 = juce::Time::getMillisecondCounterHiRes();
+            for (int k = 0; k < 50; ++k) { b.clear(); e.processBlock (b, mb); }
+            check (juce::Time::getMillisecondCounterHiRes() - t1 < 1000.0, "an empty instance doesn't hold up an offline bounce");
+            e.releaseResources();
+        }
+
         // ---- concurrency: a real audio thread keeps processing (sync preview, live pads) while
         //      the UI edits, rolls, loads presets, flips A/B and re-renders underneath it
         {

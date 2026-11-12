@@ -6,6 +6,7 @@
 #include "DropRenderer.h"
 #include "Presets.h"
 #include "LiveEngine.h"
+#include <optional>
 
 /** Raw audio as it was loaded (at its own sample rate). */
 struct SourceAudio
@@ -182,6 +183,17 @@ private:
     std::vector<std::pair<km::ResultPtr, juce::uint32>> retired;
     std::atomic<bool> renderPending { false };
     int lastRequestId = 0;
+
+    // Offline bounces (Export Audio Mixdown, Render in Place): no deadline, so the audio thread
+    // waits for the render of your latest edit instead of printing the previous one. The newest
+    // render is handed over straight from the render thread (not via the message thread, which
+    // a host may keep busy while it exports).
+    km::ResultPtr latestDelivered;            // guarded by resultLock
+    juce::WaitableEvent resultReady;
+    std::atomic<int> requestedId { 0 };
+    km::ResultPtr offlineHold;                // used by the audio thread only while offline (offlineLock)
+    juce::SpinLock offlineLock;
+    int offlineGaveUpOn = -1;                 // a request we stopped waiting for: never stall twice
 
     // transport (shared with the audio thread)
     std::atomic<bool> playing { false }, syncActive { false };

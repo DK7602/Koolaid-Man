@@ -87,7 +87,7 @@ My suggested next batch: **#2, #3, #6** (quick wins), then **#1 and #4** (the bi
 
 1. **Needs your ears and your Cubase.** Sound judgement, drag-and-drop into Cubase, and typing in the plugin's dialogs inside Cubase can only be confirmed by you.
 2. **Detection on real, dense mixes.** The tests use a synthetic beat. **Best next step:** send me 3–5 of your two-tracks (or the exports you're happy/unhappy with) and I'll build a real-music test set and tune detection against it.
-3. **Bouncing right after a tweak.** If you export a mixdown in Cubase before Koolaid Man finishes re-rendering (≈0.1–0.4 s), the previous version is bounced. Making offline bounces wait is possible but risks deadlocks in some hosts, so I left it. Just give it a beat after tweaking.
+3. ~~**Bouncing right after a tweak.**~~ **Done:** offline bounces (Export Audio Mixdown, Render in Place) now wait for the render of your latest edit. The render thread hands it straight to the audio thread, so there's no dependence on the host's message thread (no deadlock risk). Normal playback never waits.
 4. **Capture reserves memory while armed** (~92 MB at 48 kHz for up to 4 minutes; 184 MB at 96 kHz), released afterwards.
 5. ~~**HiDPI sharpness.**~~ **Done:** the artwork now ships at 2× (AI-upscaled with Real-ESRGAN from the original mockup, both themes), used automatically on HiDPI screens and big windows.
 6. **Code signing**, **AAX/CLAP**, **accessibility**, **preset tags/search**: only matter for selling or for other DAWs.
@@ -161,7 +161,7 @@ The gaps listed in Part 2 still apply. Above all, **nobody has listened yet**. T
 
 1. **Your ears.** Every check above is measurement. Taste, and how it all sits in your songs, still needs a listen in Cubase.
 2. **Hats on dense mixes** are found 87% of the time (the quietest 16ths are missed). They're only used to pick the hat sound for Hat Detect, so this is fine.
-3. Unchanged from Part 2: bouncing in the same instant as a tweak, code signing, AAX/CLAP.
+3. Unchanged from Part 2: code signing, AAX/CLAP. (Bouncing in the same instant as a tweak is now fixed.)
 
 ---
 

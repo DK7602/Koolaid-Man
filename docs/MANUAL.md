@@ -346,6 +346,7 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - Want to hear it on top of the original instead? **Gear menu > In-Sync Preview > Layer On Top**.
 - If the drop plays in the wrong place, check the clip's start bar (click the **BARS:** read-out).
 - The **Preview Level** parameter (in your DAW's automation/parameter list) sets the preview volume.
+- **Bouncing in your DAW** (Cubase's **Export > Audio Mixdown** or **Render in Place**) always prints your latest version: if you export straight after a change, Koolaid Man waits the fraction of a second it needs to finish the new render, instead of printing the old one.
 
 # Exporting (Drag Back To DAW)
 
