@@ -1352,6 +1352,8 @@ int main (int argc, char** argv)
     // ---- formatting
     std::cout << "bar pos 32 beats -> " << formatBarPosition (32.0, model) << ", 16 beats long -> " << formatLength (16.0, 4.0) << "\n";
     if (formatBarPosition (32.0, model) != "9.1.1") { std::cout << "FAIL bar format\n"; ++failures; }
+    if (formatLength (48.00002, 4.0) != "12 BARS" || formatLength (47.99998, 4.0) != "12 BARS" || formatLength (6.0, 4.0) != "1 BAR 2 BEATS")
+    { std::cout << "FAIL length format: " << formatLength (48.00002, 4.0) << " / " << formatLength (6.0, 4.0) << "\n"; ++failures; }
 
     std::cout << (failures == 0 ? "ALL TESTS PASSED" : "FAILURES: " + juce::String (failures)) << "\n";
     return failures == 0 ? 0 : 1;

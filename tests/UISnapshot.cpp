@@ -1,9 +1,13 @@
 // Renders the plugin editor to a PNG without a DAW (used to check the skin).
-// Usage: KoolaidSnapshot out.png [audio.wav] [scale]
+// Usage: KoolaidSnapshot out.png [audio.wav] [scale] [options...]
+// Options include: light, page2, page3, livepads, timeline, curveedit, patternedit, locked,
+// zone=<startBeat>,<endBeat>, preset=<factory preset name>, render=<out.wav> (writes the engine's
+// rendered audio, for demos)
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 class SnapshotApp : public juce::JUCEApplication, private juce::Timer
 {
@@ -27,7 +31,23 @@ public:
             if (! proc->loadAudioFile (juce::File::getCurrentWorkingDirectory().getChildFile (args[1]), 0, err))
                 std::cout << "load failed: " << err << "\n";
         }
+        if (auto z = argValue ("zone"); z.isNotEmpty())
+        {
+            proc->getModel().zoneStart = z.upToFirstOccurrenceOf (",", false, false).getDoubleValue();
+            proc->getModel().zoneEnd = z.fromFirstOccurrenceOf (",", false, false).getDoubleValue();
+            proc->modelChanged (false);
+        }
+        if (auto name = argValue ("preset"); name.isNotEmpty())
+            for (auto& pr : km::factoryPresets())
+                if (pr.name == name) { proc->applyPreset (pr); break; }
         startTimer (100);
+    }
+
+    juce::String argValue (const juce::String& key) const
+    {
+        for (auto& a : args)
+            if (a.startsWith (key + "=")) return a.fromFirstOccurrenceOf ("=", false, false);
+        return {};
     }
 
     void timerCallback() override
@@ -112,6 +132,19 @@ public:
                 editor.openManual();
                 if (args[3] == "manual2") editor.scrollManualForSnapshot (6);
             }
+            if (auto path = argValue ("render"); path.isNotEmpty())
+                if (auto r = proc->getResult())
+                {
+                    const auto audio = r->copyOf (km::RenderResult::Layer::mix, 0, r->length);
+                    const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (path);
+                    f.deleteFile();
+                    std::unique_ptr<juce::OutputStream> os = std::make_unique<juce::FileOutputStream> (f);
+                    juce::WavAudioFormat wav;
+                    auto opts = juce::AudioFormatWriterOptions{}.withSampleRate (r->sampleRate).withNumChannels (2).withBitsPerSample (24);
+                    if (auto w = wav.createWriterFor (os, opts))
+                        w->writeFromAudioSampleBuffer (audio, 0, audio.getNumSamples());
+                    std::cout << "rendered audio -> " << f.getFullPathName() << "\n";
+                }
             auto img = editor.snapshot (scale);
             out.deleteFile();
             juce::FileOutputStream os (out);

@@ -528,6 +528,9 @@ juce::String formatBarPosition (double beats, const DropModel& m, bool withSixte
 
 juce::String formatLength (double beats, double bpb)
 {
+    // round to what's shown (1/100 beat) first: a WAV a fraction of a sample longer than
+    // 12 bars must read "12 BARS", not "12 BARS 0.00 BEATS"
+    beats = std::round (beats * 100.0) / 100.0;
     const double bars = beats / bpb;
     const auto isInt = [] (double v) { return std::abs (v - std::round (v)) < 1.0e-6; };
     if (isInt (bars))
