@@ -348,6 +348,15 @@ When **SYNC TO SESSION** / **PREVIEW (IN SYNC)** is lit and your DAW is playing,
 - The **Preview Level** parameter (in your DAW's automation/parameter list) sets the preview volume.
 - **Bouncing in your DAW** (Cubase's **Export > Audio Mixdown** or **Render in Place**) always prints your latest version: if you export straight after a change, Koolaid Man waits the fraction of a second it needs to finish the new render, instead of printing the old one.
 
+## In a full project (lots of tracks)
+
+Put Koolaid Man on a **group or bus that all the music runs through** (not on one instrument), capture the bars, build the drop, and then pick **one** of these. Don't do both, or you'll hear the music twice.
+
+- **Easiest: let it play live.** Keep **SYNC TO SESSION** lit and don't drag anything back. While Cubase plays, Koolaid Man swaps the bus's audio for the finished drop in exactly those bars, and **Export > Audio Mixdown** prints it. Make sure every track you want replaced is routed into that bus.
+- **Print it to a track.** Set EXPORT to **BUILD ZONE** and drag it into your project. Then turn **SYNC TO SESSION** off (or bypass Koolaid Man) and silence the original tracks for those bars: choose the **Range Selection** tool, drag across the build bars on all the other tracks, then **Edit > Range > Split** and **Edit > Mute**. Send the printed track straight to the Stereo Out, not through the bus with Koolaid Man on it.
+
+Tip: capture the whole build plus one bar after the drop (for example bars 1 to 6 for a drop at bar 5). That gives the zone room to be a few bars long, and moves like Impact, Pre-Verb and Pre-verse can use the drop itself.
+
 # Exporting (Drag Back To DAW)
 
 **Drag EXPORT / DRAG TO DAW** (or the **4** banner) and drop it onto an audio track in your project. The plug-in tells you which bar to drop it on (also shown in the button's tooltip). The file starts exactly on that bar line, so with snap on it lands right on the grid.
