@@ -104,6 +104,8 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
 
     for (auto& m : model.moves)
     {
+        if (juce::Thread::currentThreadShouldExit())   // closing: stop now, this result is thrown away
+            return res;
         if (! m.enabled || playsAfterDrop (m.type))
             continue;
 
@@ -295,6 +297,8 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
         post.clear();
         for (auto& m : model.moves)
         {
+            if (juce::Thread::currentThreadShouldExit())
+                return res;
             if (! m.enabled || ! playsAfterDrop (m.type)) continue;
             ctx.userSample = nullptr;
             if (m.hasSample())
@@ -334,7 +338,7 @@ ResultPtr renderDrop (const DropModel& model, AnalysisPtr analysis, int version)
     }
 
     // the same build without the Tension-linked moves, for the live Tension knob
-    if (model.anyTensionLinks())
+    if (model.anyTensionLinks() && ! juce::Thread::currentThreadShouldExit())
     {
         DropModel b = model;
         b.moves.erase (std::remove_if (b.moves.begin(), b.moves.end(), [] (const Move& m) { return m.tensionLink; }), b.moves.end());
@@ -358,7 +362,9 @@ void RenderThread::shutdown()
 {
     signalThreadShouldExit();
     wake.signal();
-    stopThread (15000);   // a render finishes well within this (a whole song takes ~2 s)
+    // renderDrop checks for this between moves, so the thread stops within a fraction of a
+    // second. (Never let it be killed: on Windows that can leave the heap locked and hang the host.)
+    stopThread (60000);
 }
 
 void RenderThread::request (const DropModel& model, int requestId)

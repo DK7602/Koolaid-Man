@@ -1104,6 +1104,50 @@ int main (int argc, char** argv)
         if (tRender > 5000.0) { std::cout << "FAIL: rendering a long song is too slow\n"; ++failures; }
     }
 
+    // ---- closing the plug-in mid-render: the render thread must stop quickly (a host
+    //      waits for this when it closes a project; it must never need killing)
+    {
+        auto song = std::make_shared<ClipData>();
+        song->sampleRate = sr;
+        const int N = (int) (sr * 240.0);   // the longest capture
+        song->audio.setSize (2, N);
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < N; i += clip->audio.getNumSamples())
+                song->audio.copyFrom (ch, i, clip->audio, ch, 0, juce::jmin (clip->audio.getNumSamples(), N - i));
+        DropModel m = model;
+        m.music = song;
+        m.zoneEnd = std::floor (m.clipLengthBeats() / 4.0) * 4.0 - 8.0;
+        m.zoneStart = m.zoneEnd - 128.0;   // a 32-bar build with every move on: the heaviest render there is
+        m.moves.clear();
+        for (int t = 0; t < numMoveTypes; ++t)
+            m.moves.push_back (defaultMove ((MoveType) t));
+
+        auto an = std::make_shared<DrumAnalysis> (analyseDrums (song->audio, sr, m.samplesPerBeat (sr), 4.0, 0.55f, 0.55f, 0.55f));
+        auto t0 = juce::Time::getMillisecondCounterHiRes();
+        auto heavy = renderDrop (m, an, 1);
+        const double tHeavy = juce::Time::getMillisecondCounterHiRes() - t0;
+        if (! checkBuffer (full (*heavy), "heaviest render")) ++failures;
+
+        double worstStop = 0.0;
+        int delivered = 0;
+        for (int delay : { 30, 150, 400, 900 })
+        {
+            auto rt = std::make_unique<RenderThread>();
+            std::atomic<int> got { 0 };
+            rt->onResult = [&got] (ResultPtr) { ++got; };
+            rt->request (m, 1);
+            juce::Thread::sleep (delay);
+            const auto s0 = juce::Time::getMillisecondCounterHiRes();
+            rt->shutdown();
+            worstStop = juce::jmax (worstStop, juce::Time::getMillisecondCounterHiRes() - s0);
+            delivered += got.load();
+            rt.reset();
+        }
+        std::cout << "heaviest render (4-minute capture, 32-bar build, every move): " << juce::String (tHeavy, 0)
+                  << " ms; closing mid-render took at most " << juce::String (worstStop, 0) << " ms\n";
+        if (worstStop > 1500.0) { std::cout << "FAIL: closing during a render is too slow\n"; ++failures; }
+    }
+
     // ---- lengths in seconds: the same length whatever the tempo
     {
         for (double tempo : { 130.0, 90.0 })

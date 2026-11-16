@@ -324,6 +324,7 @@ void KoolaidProcessor::processMain (juce::AudioBuffer<float>& buffer)
 
     // Offline bounce: there's no deadline, so never print a build older than your last edit.
     // Wait for the render of the latest request (handed over by the render thread itself).
+    // Only while the transport runs: a host may also process offline while loading or closing.
     std::optional<juce::SpinLock::ScopedLockType> offlineScope;
     if (isNonRealtime())
     {
@@ -331,7 +332,7 @@ void KoolaidProcessor::processMain (juce::AudioBuffer<float>& buffer)
         const int want = requestedId.load();
         auto newest = [this] { const juce::ScopedLock sl (resultLock); return latestDelivered; };
         auto got = newest();
-        if (want > 0 && (got == nullptr || got->requestId < want) && offlineGaveUpOn != want)   // (nothing requested yet: nothing to wait for)
+        if (want > 0 && hostIsPlaying && (got == nullptr || got->requestId < want) && offlineGaveUpOn != want)   // (nothing requested yet: nothing to wait for)
         {
             const auto t0 = juce::Time::getMillisecondCounter();
             while ((got == nullptr || got->requestId < want) && juce::Time::getMillisecondCounter() - t0 < 20000)
